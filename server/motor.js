@@ -1,7 +1,20 @@
-// Motor de decisao: regra fixa por convenio, chamada real por HTTP a API simulada, trava de autorizacao.
+// Motor de decisão: regra fixa por convênio, chamada real por HTTP à API simulada e trava de autorização.
 import { registrarEvento } from './eventos.js';
 import { definirModo, resetarModos } from './apiSimulada.js';
 import { reiniciarSolicitacao } from './banco.js';
+
+// Colunas que uma transição pode escrever. Allowlist explícita: o UPDATE é montado só com
+// nomes daqui, nunca com texto vindo de fora. Valores sempre por placeholder.
+const COLUNAS_DE_TRANSICAO = new Set([
+  'status',
+  'motivo',
+  'regra_usada',
+  'numero_autorizacao',
+  'latencia_ms',
+  'respondido_em',
+]);
+
+const STATUS_FINAIS = new Set(['autorizada', 'pendente_documento', 'erro_integracao', 'tarefa_humana']);
 
 function obterUrlMock() {
   if (process.env.MOCK_URL) return process.env.MOCK_URL;
@@ -9,7 +22,7 @@ function obterUrlMock() {
   return `http://127.0.0.1:${porta}/mock`;
 }
 
-// Chamada real por HTTP, com timeout por AbortController e medicao de latencia.
+// Chamada real por HTTP, com timeout por AbortController e medição de latência.
 async function chamarApiSimulada(convenioId, { solicitacaoId, procedimento, temDocumento }, tempoLimiteMs) {
   const controlador = new AbortController();
   const temporizador = setTimeout(() => controlador.abort(), tempoLimiteMs);
@@ -48,15 +61,37 @@ function temDocumentoAnexado(db, solicitacaoId) {
   return Boolean(db.prepare('SELECT 1 FROM documentos WHERE solicitacao = ? LIMIT 1').get(solicitacaoId));
 }
 
-function criarTarefaHumana(db, solicitacaoId, motivo) {
+// Saúde da integração, só observabilidade: conta falhas seguidas e só piora o status dentro de
+// uma sequência de falhas (nunca "promove" um convênio que o kit já marca como fora).
+// O motor NÃO curto-circuita por disjuntor aberto: ele continua tentando e registrando.
+function registrarFalhaIntegracao(db, convenioId) {
+  const convenio = db.prepare('SELECT status_integracao, disjuntor, falhas_seguidas FROM convenios WHERE id = ?').get(convenioId);
+  if (!convenio) return;
+  const falhas = convenio.falhas_seguidas + 1;
+  const abriu = falhas >= 3;
+  const status = abriu || convenio.status_integracao === 'fora' ? 'fora' : 'degradado';
+  db.prepare('UPDATE convenios SET falhas_seguidas = ?, status_integracao = ?, disjuntor = ? WHERE id = ?')
+    .run(falhas, status, abriu ? 'aberto' : convenio.disjuntor, convenioId);
+}
+
+function registrarSucessoIntegracao(db, convenioId) {
+  db.prepare("UPDATE convenios SET falhas_seguidas = 0, status_integracao = 'ok', disjuntor = 'fechado' WHERE id = ?")
+    .run(convenioId);
+}
+
+// Texto de encaminhamento montado por template local (não é chamada de LLM) e prazo curto,
+// pra quem pega a tarefa saber o que fazer sem abrir a linha do tempo.
+function criarTarefaHumana(db, solicitacaoId, motivo, prioridade = 'normal') {
+  const prazo = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const textoSugerido = `Solicitação ${solicitacaoId}: ${motivo}. Conferir no portal do convênio e responder manualmente. Não emitir autorização sem número devolvido pelo convênio.`;
   db.prepare(`
     INSERT INTO tarefas_humanas (solicitacao, motivo, texto_ia, prioridade, responsavel, prazo, status)
-    VALUES (?, ?, NULL, 'normal', NULL, NULL, 'aberta')
-  `).run(solicitacaoId, motivo);
+    VALUES (?, ?, ?, ?, NULL, ?, 'aberta')
+  `).run(solicitacaoId, motivo, textoSugerido, prioridade, prazo);
 }
 
 // Muda o status, grava os campos e registra o evento correspondente. Muta o objeto local
-// de solicitacao para manter o status_de correto entre chamadas sequenciais.
+// de solicitação para manter o status_de correto entre chamadas sequenciais.
 function transicionar(db, solicitacao, novoStatus, { motivo, regraUsada, numeroAutorizacao, latenciaMs } = {}) {
   const statusAnterior = solicitacao.status;
   const campos = { status: novoStatus };
@@ -64,49 +99,52 @@ function transicionar(db, solicitacao, novoStatus, { motivo, regraUsada, numeroA
   if (regraUsada !== undefined) campos.regra_usada = regraUsada;
   if (numeroAutorizacao !== undefined) campos.numero_autorizacao = numeroAutorizacao;
   if (latenciaMs !== undefined) campos.latencia_ms = latenciaMs;
-  if (['autorizada', 'pendente_documento', 'erro_integracao', 'tarefa_humana'].includes(novoStatus)) {
-    campos.respondido_em = new Date().toISOString();
-  }
+  if (STATUS_FINAIS.has(novoStatus)) campos.respondido_em = new Date().toISOString();
 
-  const colunas = Object.keys(campos);
+  const colunas = Object.keys(campos).filter((coluna) => COLUNAS_DE_TRANSICAO.has(coluna));
   const atribuicoes = colunas.map((coluna) => `${coluna} = ?`).join(', ');
-  db.prepare(`UPDATE solicitacoes SET ${atribuicoes} WHERE id = ?`).run(...colunas.map((c) => campos[c]), solicitacao.id);
+  db.prepare(`UPDATE solicitacoes SET ${atribuicoes} WHERE id = ?`)
+    .run(...colunas.map((coluna) => campos[coluna]), solicitacao.id);
 
   registrarEvento(db, {
     solicitacao: solicitacao.id,
     statusDe: statusAnterior,
     statusPara: novoStatus,
-    motivo: campos.motivo ?? motivo,
-    regraUsada: campos.regra_usada ?? regraUsada,
+    motivo: campos.motivo,
+    regraUsada: campos.regra_usada,
     ator: 'sistema',
   });
 
   Object.assign(solicitacao, campos);
 }
 
-// Processa uma solicitacao: decide pela regra do convenio e chama a API simulada de verdade.
+// Processa uma solicitação: decide pela regra do convênio e chama a API simulada de verdade.
 export async function processarSolicitacao(db, solicitacaoId) {
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get(solicitacaoId);
   if (!solicitacao) return;
 
   const convenioInfo = buscarConvenio(db, solicitacao.convenio);
 
+  // Convênio sem entrada na base: regra fora_da_base manda direto pra equipe humana.
   if (!convenioInfo) {
     const regraForaDaBase = buscarRegra(db, 'fora_da_base');
-    const fonte = regraForaDaBase ? `${regraForaDaBase.fonte}-v${regraForaDaBase.versao}` : 'REGRAS-DEMO-v1';
-    const motivo = `fora da base: convenio "${solicitacao.convenio}" nao cadastrado (regra fora_da_base, ${fonte}), encaminhado para humano`;
-    transicionar(db, solicitacao, 'em_analise', { motivo: 'convenio nao cadastrado na base', regraUsada: fonte });
+    const fonte = regraForaDaBase?.fonte ?? 'REGRAS-DEMO-v1';
+    const motivo = `fora da base: convênio "${solicitacao.convenio}" não cadastrado (regra fora_da_base, ${fonte}), encaminhado para humano`;
+    transicionar(db, solicitacao, 'em_analise', { motivo: 'convênio não cadastrado na base', regraUsada: fonte });
     transicionar(db, solicitacao, 'tarefa_humana', { motivo, regraUsada: fonte });
-    criarTarefaHumana(db, solicitacao.id, motivo);
+    criarTarefaHumana(db, solicitacao.id, motivo, 'alta');
     return;
   }
 
   const regra = buscarRegra(db, convenioInfo.id);
-  const fonte = `${regra.fonte}-v${regra.versao}`;
+  const fonte = regra.fonte;
+
+  // A decisão é sempre a da regra do CONVÊNIO. Procedimento diferente do da regra só vira
+  // observação no motivo (o auditor trata depois), nunca muda a decisão.
   const procedimentoDivergente = regra.procedimento !== 'qualquer'
-    && solicitacao.procedimento
+    && Boolean(solicitacao.procedimento)
     && regra.procedimento !== solicitacao.procedimento;
-  const sufixo = procedimentoDivergente ? ' atencao: procedimento fora da regra explicita' : '';
+  const sufixo = procedimentoDivergente ? ', atenção: procedimento fora da regra explícita' : '';
 
   transicionar(db, solicitacao, 'em_analise', {
     motivo: `enviando para API simulada de ${convenioInfo.nome} (${fonte})${sufixo}`,
@@ -122,22 +160,27 @@ export async function processarSolicitacao(db, solicitacaoId) {
     convenioInfo.tempo_limite_ms,
   );
 
+  // Falha de integração (503, timeout ou erro de rede): erro_integracao e depois tarefa humana.
+  // Nunca inventa autorização.
   if (resultado.falhaIntegracao) {
+    registrarFalhaIntegracao(db, convenioInfo.id);
     transicionar(db, solicitacao, 'erro_integracao', {
-      motivo: `falha de integracao com ${convenioInfo.nome}: ${resultado.erro}${sufixo}`,
+      motivo: `falha de integração com ${convenioInfo.nome}: ${resultado.erro}${sufixo}`,
       regraUsada: fonte,
       latenciaMs: resultado.latenciaMs,
     });
-    const motivoHumano = `encaminhado para humano: ${convenioInfo.nome} indisponivel (${resultado.erro}), sem inventar autorizacao`;
+    const motivoHumano = `encaminhado para humano: ${convenioInfo.nome} indisponível (${resultado.erro}), sem inventar autorização`;
     transicionar(db, solicitacao, 'tarefa_humana', { motivo: motivoHumano, regraUsada: fonte });
-    criarTarefaHumana(db, solicitacao.id, motivoHumano);
+    criarTarefaHumana(db, solicitacao.id, motivoHumano, 'alta');
     return;
   }
 
+  registrarSucessoIntegracao(db, convenioInfo.id);
   const corpo = resultado.corpo ?? {};
 
   if (corpo.status === 'autorizado') {
-    const numero = (corpo.numero_autorizacao ?? '').trim();
+    const numero = String(corpo.numero_autorizacao ?? '').trim();
+    // TRAVA: só vira autorizada com número preenchido. Sem número, vai pra humano.
     if (numero) {
       transicionar(db, solicitacao, 'autorizada', {
         motivo: `autorizado por ${convenioInfo.nome} conforme ${fonte}${sufixo}`,
@@ -147,9 +190,13 @@ export async function processarSolicitacao(db, solicitacaoId) {
       });
       return;
     }
-    const motivoSemNumero = 'resposta sem numero de autorizacao';
-    transicionar(db, solicitacao, 'tarefa_humana', { motivo: motivoSemNumero, regraUsada: fonte, latenciaMs: resultado.latenciaMs });
-    criarTarefaHumana(db, solicitacao.id, motivoSemNumero);
+    const motivoSemNumero = 'resposta sem número de autorização';
+    transicionar(db, solicitacao, 'tarefa_humana', {
+      motivo: motivoSemNumero,
+      regraUsada: fonte,
+      latenciaMs: resultado.latenciaMs,
+    });
+    criarTarefaHumana(db, solicitacao.id, motivoSemNumero, 'alta');
     return;
   }
 
@@ -163,11 +210,15 @@ export async function processarSolicitacao(db, solicitacaoId) {
   }
 
   const motivoInesperado = `resposta inesperada de ${convenioInfo.nome}: "${corpo.status}"`;
-  transicionar(db, solicitacao, 'tarefa_humana', { motivo: motivoInesperado, regraUsada: fonte, latenciaMs: resultado.latenciaMs });
-  criarTarefaHumana(db, solicitacao.id, motivoInesperado);
+  transicionar(db, solicitacao, 'tarefa_humana', {
+    motivo: motivoInesperado,
+    regraUsada: fonte,
+    latenciaMs: resultado.latenciaMs,
+  });
+  criarTarefaHumana(db, solicitacao.id, motivoInesperado, 'alta');
 }
 
-// Processa varias solicitacoes em paralelo (uma fila presa num convenio nao trava as outras).
+// Processa várias solicitações em paralelo (uma fila presa num convênio não trava as outras).
 export function processarFila(db, ids) {
   return Promise.allSettled(ids.map((id) => processarSolicitacao(db, id)));
 }
@@ -197,27 +248,35 @@ export async function casoJardimIndisponivelCriaTarefa(db) {
 export async function casoSemNumeroNaoAutoriza(db) {
   reiniciarSolicitacao(db, 'DEMO-R1');
   definirModo('aurora', 'sem_numero');
-  await processarSolicitacao(db, 'DEMO-R1');
-  definirModo('aurora', 'normal');
+  try {
+    await processarSolicitacao(db, 'DEMO-R1');
+  } finally {
+    // Restaura o modo mesmo se o processamento estourar: o modo é global do processo.
+    definirModo('aurora', 'normal');
+  }
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get('DEMO-R1');
   const tarefa = db.prepare('SELECT 1 FROM tarefas_humanas WHERE solicitacao = ?').get('DEMO-R1');
-  return { passou: solicitacao.status === 'tarefa_humana' && Boolean(tarefa), solicitacao };
+  const naoInventouNumero = !solicitacao.numero_autorizacao;
+  return {
+    passou: solicitacao.status === 'tarefa_humana' && Boolean(tarefa) && naoInventouNumero,
+    solicitacao,
+  };
 }
 
-// Roda os 4 casos do kit num banco ja seedado. Usado por POST /api/testes/rodar.
+// Roda os 4 casos do kit num banco já seedado. Usado por POST /api/testes/rodar.
 export async function rodarCasosBasicos(db) {
   resetarModos();
   const casos = [
-    ['Aurora Demo: retorna autorizacao DEMO', casoAuroraAutoriza],
-    ['Horizonte Demo sem documento: mantem pendencia', casoHorizonteSemDocumentoFicaPendente],
-    ['Jardim Demo indisponivel: cria tarefa humana', casoJardimIndisponivelCriaTarefa],
-    ['Resposta sem numero de autorizacao: nao marca autorizado', casoSemNumeroNaoAutoriza],
+    ['Aurora Demo: retorna autorização DEMO', casoAuroraAutoriza],
+    ['Horizonte Demo sem documento: mantém pendência', casoHorizonteSemDocumentoFicaPendente],
+    ['Jardim Demo indisponível: cria tarefa humana', casoJardimIndisponivelCriaTarefa],
+    ['Resposta sem número de autorização: não marca autorizado', casoSemNumeroNaoAutoriza],
   ];
   const detalhes = [];
   for (const [nome, executar] of casos) {
     const resultado = await executar(db);
-    detalhes.push({ caso: nome, passou: resultado.passou });
+    detalhes.push({ caso: nome, passou: resultado.passou, status: resultado.solicitacao?.status ?? null });
   }
-  const passaram = detalhes.filter((d) => d.passou).length;
+  const passaram = detalhes.filter((detalhe) => detalhe.passou).length;
   return { passaram, total: detalhes.length, detalhes };
 }

@@ -158,7 +158,7 @@ export function seedBanco(db) {
 
   const inserirRegra = db.prepare(`
     INSERT INTO regras (convenio, procedimento, exige_documento, acao, fonte, versao)
-    VALUES (?, ?, ?, ?, 'REGRAS-DEMO', 1)
+    VALUES (?, ?, ?, ?, 'REGRAS-DEMO-v1', 1)
   `);
   inserirRegra.run('aurora', 'DEMO-1', 0, 'autorizar');
   inserirRegra.run('horizonte', 'DEMO-2', 1, 'pedir_documento');
@@ -237,6 +237,9 @@ export function reiniciarSolicitacao(db, id) {
     WHERE id = ?
   `).run(id);
   db.prepare('DELETE FROM tarefas_humanas WHERE solicitacao = ?').run(id);
+  // Documentos anexados tambem saem: o estado inicial do kit nao tem documento, entao
+  // reiniciar a fila sempre reproduz os mesmos tres resultados na demo.
+  db.prepare('DELETE FROM documentos WHERE solicitacao = ?').run(id);
 
   registrarEvento(db, {
     solicitacao: id,
