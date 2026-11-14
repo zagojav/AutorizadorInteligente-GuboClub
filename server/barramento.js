@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 export const TIPOS_DE_EVENTO = Object.freeze([
   'solicitacao_atualizada',
   'disjuntor_mudou',
+  'modo_mudou',
   'tarefa_criada',
   'metricas',
 ]);

@@ -85,6 +85,64 @@ test('SSE - evento chega no cliente quando a fila processa', async () => {
   }
 });
 
+test('SSE - modo_mudou chega ao trocar modo, derrubar e restaurar', async () => {
+  const controlador = new AbortController();
+  try {
+    const resposta = await fetch(`${base}/api/stream`, { signal: controlador.signal });
+    const leitor = resposta.body.getReader();
+    await leitor.read(); // descarta o bloco de conexao
+
+    const decodificador = new TextDecoder();
+    // Le do stream ate achar um modo_mudou com o modo esperado para o convenio.
+    async function esperarModo(convenio, modoEsperado) {
+      let acumulado = '';
+      for (let leituras = 0; leituras < 40; leituras += 1) {
+        const { value, done } = await leitor.read();
+        if (done) break;
+        acumulado += decodificador.decode(value);
+        for (const bloco of acumulado.split('\n\n')) {
+          if (!bloco.includes('event: modo_mudou')) continue;
+          const linhaDados = bloco.split('\n').find((linha) => linha.startsWith('data: '));
+          if (!linhaDados) continue;
+          const dados = JSON.parse(linhaDados.slice(6));
+          if (dados.convenio === convenio && dados.modo === modoEsperado) return dados;
+        }
+      }
+      return null;
+    }
+
+    const trocaDeModo = fetch(`${base}/api/convenios/aurora/modo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ modo: 'sem_numero' }),
+    });
+    const eventoModo = await esperarModo('aurora', 'sem_numero');
+    await trocaDeModo;
+    assert.ok(eventoModo, 'esperava modo_mudou da aurora com sem_numero');
+    assert.equal(eventoModo.disjuntor, 'fechado');
+
+    const derrubada = fetch(`${base}/api/convenios/jardim/derrubar`, { method: 'POST' });
+    const eventoCaos = await esperarModo('jardim', 'caos');
+    await derrubada;
+    assert.ok(eventoCaos, 'esperava modo_mudou do jardim com caos');
+    assert.ok(['fechado', 'aberto', 'meio_aberto'].includes(eventoCaos.disjuntor));
+
+    const restauracao = fetch(`${base}/api/convenios/jardim/restaurar`, { method: 'POST' });
+    const eventoNormal = await esperarModo('jardim', 'normal');
+    await restauracao;
+    assert.ok(eventoNormal, 'esperava modo_mudou do jardim com normal');
+    assert.equal(eventoNormal.disjuntor, 'fechado');
+
+    // A rodada restaura todos os convenios, entao a aurora volta pra normal tambem.
+    const rodada = fetch(`${base}/api/fila/iniciar`, { method: 'POST' });
+    const eventoDaRodada = await esperarModo('aurora', 'normal');
+    await rodada;
+    assert.ok(eventoDaRodada, 'esperava modo_mudou da aurora no fila/iniciar');
+  } finally {
+    controlador.abort();
+  }
+});
+
 test('Auditoria - rota devolve os alertas com fonte do kit', async () => {
   const resposta = await fetch(`${base}/api/auditoria`);
   const corpo = await resposta.json();

@@ -24,7 +24,7 @@ import {
 } from './apiSimulada.js';
 import { calcularMetricas, guardarResultadoDosCasos } from './metricas.js';
 import { resumirAuditoria } from './auditor.js';
-import { assinar } from './barramento.js';
+import { assinar, publicar } from './barramento.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Caminho fixo, dentro de ./kit. Nunca é montado com valor vindo do usuário (sem path traversal).
@@ -80,6 +80,17 @@ function responderErro(reply, codigo, mensagem, erro) {
 }
 
 export function registrarRotasPublicas(fastify, db, filas) {
+  // Trocar modo nao emite nada por si: quem muda o modo chama isto, pro front atualizar
+  // os botoes pelo SSE em vez de ficar consultando /api/saude.
+  function publicarModo(convenioId) {
+    const convenio = db.prepare('SELECT id, disjuntor FROM convenios WHERE id = ?').get(convenioId);
+    publicar('modo_mudou', {
+      convenio: convenioId,
+      modo: obterModo(convenioId),
+      disjuntor: convenio?.disjuntor ?? null,
+    });
+  }
+
   // Dados de usuário nunca vão pra cache de CDN/edge, e nada de sniffing de content-type.
   fastify.addHook('onSend', async (request, reply) => {
     reply.header('cache-control', 'private, no-store');
@@ -121,6 +132,8 @@ export function registrarRotasPublicas(fastify, db, filas) {
     try {
       restaurarTodosOsConvenios(db);
       resetarModos();
+      // A rodada tambem zera modo e disjuntor de todos: o front precisa saber de cada um.
+      CONVENIOS_CONHECIDOS.forEach((convenio) => publicarModo(convenio));
 
       const ids = db.prepare('SELECT id FROM solicitacoes ORDER BY sintetica, id').all().map((linha) => linha.id);
       ids.forEach((id) => reiniciarSolicitacao(db, id));
@@ -213,6 +226,7 @@ export function registrarRotasPublicas(fastify, db, filas) {
       const { convenio } = request.params;
       const { modo } = request.body;
       definirModo(convenio, modo);
+      publicarModo(convenio);
       return { convenio, modo: obterModo(convenio) };
     } catch (erro) {
       return responderErro(reply, 500, 'falha ao trocar o modo do convênio', erro);
@@ -224,6 +238,7 @@ export function registrarRotasPublicas(fastify, db, filas) {
     try {
       const { convenio } = request.params;
       definirModo(convenio, 'caos');
+      publicarModo(convenio);
       return { convenio, modo: obterModo(convenio), derrubado: true };
     } catch (erro) {
       return responderErro(reply, 500, 'falha ao derrubar o convênio', erro);
@@ -236,6 +251,7 @@ export function registrarRotasPublicas(fastify, db, filas) {
       const { convenio } = request.params;
       restaurarModoPadrao(convenio);
       restaurarConvenio(db, convenio);
+      publicarModo(convenio);
       const estado = db.prepare('SELECT id, status_integracao, disjuntor, falhas_seguidas FROM convenios WHERE id = ?').get(convenio);
       return { ...estado, modo: obterModo(convenio), restaurado: true };
     } catch (erro) {
