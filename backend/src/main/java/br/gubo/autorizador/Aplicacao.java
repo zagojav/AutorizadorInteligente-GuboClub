@@ -60,15 +60,9 @@ public final class Aplicacao {
       // SSE fica aberto: sem timeout de requisicao assincrona.
       configuracao.http.asyncTimeout = 0L;
 
-      // CORS so pro Vite local, e so fora de producao. Sem '*' e sem credenciais: o
-      // navegador de outra origem nao ganha acesso a esta API por acidente.
-      if (!"production".equals(Config.texto("NODE_ENV"))) {
-        configuracao.bundledPlugins.enableCors(cors ->
-            cors.addRule(regra -> {
-              regra.allowHost("http://localhost:5173", "http://127.0.0.1:5173");
-              regra.allowCredentials = false;
-            }));
-      }
+      // CORS: feito a mao em Rotas (so pro Vite local, fora de producao). O plugin do
+      // Javalin responde 400 a qualquer Origin fora da lista, e o navegador manda Origin
+      // ate em requisicao da propria pagina (module script, fetch): quebraria o front.
       configuracao.jetty.defaultHost = Config.texto("HOST", "127.0.0.1");
 
       // Os estaticos de ./web/dist sao servidos pela rota de fallback em Rotas (com cache por

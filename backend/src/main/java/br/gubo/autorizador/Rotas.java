@@ -72,7 +72,36 @@ public final class Rotas {
         "disjuntor", convenio == null ? null : convenio.get("disjuntor")));
   }
 
+  /**
+   * Origens liberadas em desenvolvimento: so o Vite local. Sem '*' e sem credenciais.
+   * Qualquer outra origem simplesmente nao recebe o cabecalho (o navegador bloqueia a
+   * leitura), igual ao backend Node com @fastify/cors. Requisicao da propria pagina
+   * (mesma origem) nem entra aqui: segue normal.
+   */
+  private static final List<String> ORIGENS_DE_DESENVOLVIMENTO =
+      List.of("http://localhost:5173", "http://127.0.0.1:5173");
+
+  private static void aplicarCors(Context contexto) {
+    if ("production".equals(Config.texto("NODE_ENV"))) {
+      return;
+    }
+    String origem = contexto.header("origin");
+    if (origem == null || !ORIGENS_DE_DESENVOLVIMENTO.contains(origem)) {
+      return;
+    }
+    contexto.header("access-control-allow-origin", origem);
+    contexto.header("vary", "origin");
+    contexto.header("access-control-allow-methods", "GET, POST");
+    contexto.header("access-control-allow-headers", "content-type");
+    if ("OPTIONS".equals(contexto.method().name())) {
+      contexto.status(204);
+      contexto.skipRemainingHandlers();
+    }
+  }
+
   public void registrar(Javalin servidor) {
+    servidor.before(Rotas::aplicarCors);
+
     // Dados de usuario nunca vao pra cache de CDN/edge, e nada de sniffing de content-type.
     // O SSE fica de fora: a resposta dele ja foi enviada no proprio handler.
     servidor.after(contexto -> {

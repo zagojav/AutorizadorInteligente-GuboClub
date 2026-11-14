@@ -526,8 +526,30 @@ class AutorizadorTest {
         "esperava CORS pro Vite, cabecalhos: " + doVite.cabecalhos());
 
     Resposta deOutraOrigem = chamar("GET", "/api/saude", null, "origin", "http://site-de-fora.invalid");
+    assertEquals(200, deOutraOrigem.codigo(), "origem de fora nao recebe 400: so fica sem o cabecalho");
     assertTrue(deOutraOrigem.cabecalhos().getOrDefault("access-control-allow-origin", List.of()).isEmpty(),
         "nenhuma outra origem pode ser liberada: " + deOutraOrigem.cabecalhos());
+
+    // O navegador manda Origin ate em requisicao da propria pagina (module script, fetch):
+    // tem que passar normal, senao o front servido pelo Java nao carrega.
+    Resposta daPropriaPagina = chamar("GET", "/api/saude", null, "origin", base);
+    assertEquals(200, daPropriaPagina.codigo());
+    assertTrue(daPropriaPagina.cabecalhos().getOrDefault("access-control-allow-origin", List.of()).isEmpty());
+
+    // Preflight do Vite: 204 com os cabecalhos, sem credenciais.
+    try {
+      HttpResponse<byte[]> preflight = http.send(HttpRequest.newBuilder()
+          .uri(URI.create(base + "/api/convenios/aurora/modo"))
+          .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+          .header("origin", "http://localhost:5173")
+          .header("access-control-request-method", "POST")
+          .build(), HttpResponse.BodyHandlers.ofByteArray());
+      assertEquals(204, preflight.statusCode());
+      assertEquals("http://localhost:5173", preflight.headers().firstValue("access-control-allow-origin").orElse(""));
+      assertTrue(preflight.headers().firstValue("access-control-allow-credentials").isEmpty());
+    } catch (IOException | InterruptedException erro) {
+      throw new IllegalStateException(erro);
+    }
   }
 
   @Test

@@ -151,14 +151,32 @@ export function useTextosDaIa(tarefas) {
       if (fim) encerrar('concluido');
     };
 
+    // O backend emite "origem", "trecho" (um pedaço por vez) e "fim" (texto completo).
+    // Os trechos vão se acumulando; no "fim" só aproveitamos o texto completo se nenhum
+    // trecho chegou (texto salvo de antes), senão o parágrafo sairia dobrado.
+    const aoTerminar = (bruto) => {
+      const { token, origem } = interpretarPedaco(bruto ?? '');
+      setTextos((atual) => {
+        const anterior = atual[id] ?? { texto: '', origem: null, situacao: 'fluindo' };
+        return {
+          ...atual,
+          [id]: {
+            texto: anterior.texto || token || '',
+            origem: origem ?? anterior.origem,
+            situacao: 'concluido',
+          },
+        };
+      });
+      encerrar('concluido');
+    };
+
     const ouvintes = [
       ['message', (evento) => aplicar(evento.data)],
       ['token', (evento) => aplicar(evento.data)],
+      ['trecho', (evento) => aplicar(evento.data)],
       ['origem', (evento) => aplicar(evento.data)],
-      ['fim', (evento) => {
-        if (evento.data) aplicar(evento.data);
-        encerrar('concluido');
-      }],
+      ['falha', () => encerrar('indisponivel')],
+      ['fim', (evento) => aoTerminar(evento.data)],
     ];
     ouvintes.forEach(([tipo, ouvinte]) => fonte.addEventListener(tipo, ouvinte));
 
@@ -178,9 +196,12 @@ export function useTextosDaIa(tarefas) {
     ref.temporizador = setTimeout(() => encerrar('indisponivel'), LIMITE_POR_TAREFA_MS);
   }, [atualizar]);
 
-  // Enfileira cada tarefa nova uma única vez.
+  // Enfileira cada tarefa nova uma única vez. Tarefa que sumiu da lista (a fila foi
+  // reiniciada e o backend apagou a tarefa) sai da espera: pedir o texto dela daria 404.
   useEffect(() => {
     const ref = controle.current;
+    const abertas = new Set((tarefas ?? []).map((tarefa) => tarefa?.id));
+    ref.fila = ref.fila.filter((id) => abertas.has(id));
     let entrouAlguma = false;
     (tarefas ?? []).forEach((tarefa) => {
       if (tarefa?.id == null || ref.enfileirados.has(tarefa.id)) return;
