@@ -1,0 +1,456 @@
+/* Tokens e base compartilhada pelas duas telas. Sem framework: só variáveis e grid de 12. */
+
+:root {
+  /* Superfícies e texto */
+  --papel: #fafaf7;
+  --papel-2: #ffffff;
+  --papel-3: #f3f2ec;
+  --tinta: #111111;
+  --tinta-2: #4a4a46;
+  --tinta-3: #78786f;
+  --linha: #e2e1d8;
+  --linha-forte: #c9c8bc;
+
+  /* Marca: azul petróleo */
+  --marca: #0f5c63;
+  --marca-escura: #0a4046;
+  --marca-clara: #e3efef;
+
+  /* Estados (sempre acompanhados de texto + ícone, nunca cor sozinha) */
+  --verde: #1f6b47;
+  --verde-fundo: #e4f2ea;
+  --ambar: #8a5a06;
+  --ambar-fundo: #fbf0da;
+  --vermelho: #a32416;
+  --vermelho-fundo: #fbe6e2;
+  --neutro: #55554f;
+  --neutro-fundo: #eceae2;
+
+  /* Ritmo */
+  --esp-1: 4px;
+  --esp-2: 8px;
+  --esp-3: 12px;
+  --esp-4: 16px;
+  --esp-5: 24px;
+  --esp-6: 32px;
+  --esp-7: 48px;
+  --esp-8: 72px;
+  --esp-9: 112px;
+
+  --raio: 10px;
+  --raio-g: 16px;
+  --borda: 1px solid var(--linha);
+  --sombra: 0 1px 2px rgba(17, 17, 17, 0.04), 0 8px 24px -16px rgba(17, 17, 17, 0.16);
+  --sombra-alta: 0 2px 4px rgba(17, 17, 17, 0.05), 0 24px 48px -24px rgba(17, 17, 17, 0.22);
+
+  --fonte: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --largura-max: 1440px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--papel);
+  color: var(--tinta);
+  font-family: var(--fonte);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--marca);
+}
+
+/* Números sempre em fonte tabular: não dançam quando o valor muda. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Grid de 12 colunas */
+.grade {
+  width: 100%;
+  max-width: var(--largura-max);
+  margin: 0 auto;
+  padding: 0 var(--esp-5);
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--esp-5);
+}
+
+/* Foco visível e consistente em tudo que é focável. */
+:where(a, button, [tabindex], summary, input):focus-visible {
+  outline: 2px solid var(--marca);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Só pra leitor de tela */
+.oculto-visual {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Scrollbar personalizada: fina, trilho transparente, polegar na cor da marca. */
+html {
+  scrollbar-color: var(--marca) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--marca);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--marca-escura);
+  background-clip: padding-box;
+}
+
+/* ---------- Tipografia de display (usada nas duas telas) ---------- */
+.display {
+  font-size: clamp(48px, 8vw, 120px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+.titulo-secao {
+  font-size: clamp(20px, 2vw, 26px);
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.etiqueta {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tinta-3);
+}
+
+/* ---------- Selos de estado ---------- */
+.selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.selo svg {
+  flex: 0 0 auto;
+}
+
+.selo--verde {
+  color: var(--verde);
+  background: var(--verde-fundo);
+  border-color: color-mix(in srgb, var(--verde) 22%, transparent);
+}
+
+.selo--ambar {
+  color: var(--ambar);
+  background: var(--ambar-fundo);
+  border-color: color-mix(in srgb, var(--ambar) 22%, transparent);
+}
+
+.selo--vermelho {
+  color: var(--vermelho);
+  background: var(--vermelho-fundo);
+  border-color: color-mix(in srgb, var(--vermelho) 22%, transparent);
+}
+
+.selo--neutro {
+  color: var(--neutro);
+  background: var(--neutro-fundo);
+  border-color: color-mix(in srgb, var(--neutro) 18%, transparent);
+}
+
+.selo--marca {
+  color: var(--marca);
+  background: var(--marca-clara);
+  border-color: color-mix(in srgb, var(--marca) 22%, transparent);
+}
+
+.selo--contorno {
+  color: var(--tinta-3);
+  background: transparent;
+  border-color: var(--linha-forte);
+}
+
+/* ---------- Botões ---------- */
+.botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--esp-2);
+  padding: 10px 16px;
+  border-radius: var(--raio);
+  border: 1px solid var(--linha-forte);
+  background: var(--papel-2);
+  color: var(--tinta);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.botao:hover:not(:disabled) {
+  border-color: var(--marca);
+  color: var(--marca);
+}
+
+.botao:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.botao:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.botao--marca {
+  background: var(--marca);
+  border-color: var(--marca);
+  color: #fff;
+}
+
+.botao--marca:hover:not(:disabled) {
+  background: var(--marca-escura);
+  border-color: var(--marca-escura);
+  color: #fff;
+}
+
+.botao--perigo {
+  background: var(--vermelho);
+  border-color: var(--vermelho);
+  color: #fff;
+}
+
+.botao--perigo:hover:not(:disabled) {
+  background: #881b0f;
+  border-color: #881b0f;
+  color: #fff;
+}
+
+/* Derrubar dos convênios que não são o destaque: existe, mas não disputa atenção. */
+.botao--discreto {
+  color: var(--tinta-3);
+  border-color: var(--linha);
+}
+
+.botao--discreto:hover:not(:disabled) {
+  color: var(--vermelho);
+  border-color: var(--vermelho);
+}
+
+/* O botão mais destacado da tela: "Derrubar Jardim". */
+.botao--destaque {
+  padding: 12px 18px;
+  font-size: 15px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--vermelho) 14%, transparent);
+}
+
+.botao--ativo {
+  background: var(--marca-clara);
+  border-color: var(--marca);
+  color: var(--marca-escura);
+}
+
+.botao--pequeno {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+/* ---------- Cartão ---------- */
+.cartao {
+  background: var(--papel-2);
+  border: var(--borda);
+  border-radius: var(--raio-g);
+  box-shadow: var(--sombra);
+}
+
+/* ---------- Skeleton ---------- */
+.esqueleto {
+  position: relative;
+  overflow: hidden;
+  background: var(--papel-3);
+  border-radius: var(--raio);
+}
+
+.esqueleto::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  animation: brilho 1.4s infinite;
+}
+
+@keyframes brilho {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ---------- Estados vazio e erro ---------- */
+.estado {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--esp-2);
+  padding: var(--esp-5);
+  border: 1px dashed var(--linha-forte);
+  border-radius: var(--raio-g);
+  color: var(--tinta-3);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--papel-3) 50%, transparent);
+}
+
+.estado--erro {
+  border-color: color-mix(in srgb, var(--vermelho) 40%, transparent);
+  background: var(--vermelho-fundo);
+  color: var(--vermelho);
+}
+
+.estado__titulo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tinta);
+}
+
+.estado--erro .estado__titulo {
+  color: var(--vermelho);
+}
+
+/* ---------- Dica didática ("?") ---------- */
+.dica {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.dica__gatilho {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--linha-forte);
+  background: var(--papel-2);
+  color: var(--tinta-3);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: help;
+}
+
+.dica__gatilho:hover,
+.dica__gatilho:focus-visible {
+  border-color: var(--marca);
+  color: var(--marca);
+}
+
+.dica__bolha {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 260px;
+  padding: 10px 12px;
+  border-radius: var(--raio);
+  background: var(--tinta);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
+  box-shadow: var(--sombra-alta);
+}
+
+.dica__bolha::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--tinta);
+}
+
+@media (max-width: 720px) {
+  .dica__bolha {
+    left: auto;
+    right: -8px;
+    transform: none;
+    max-width: min(260px, 70vw);
+  }
+  .dica__bolha::before {
+    left: auto;
+    right: 12px;
+    transform: none;
+  }
+}
+
+/* Respeita quem pediu menos movimento. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

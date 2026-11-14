@@ -9,3 +9,5 @@ backend/target/
 .env.*
 !.env.example
 .DS_Store
+web/dist/
+web/node_modules/
