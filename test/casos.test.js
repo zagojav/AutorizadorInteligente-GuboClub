@@ -13,6 +13,8 @@ import {
 } from '../server/motor.js';
 
 process.env.MOCK_LATENCIA_MS = '20';
+// Espera curta entre as retentativas: o teste não precisa esperar os 200/400/800 ms reais.
+process.env.ESPERAS_RETENTATIVA_MS = '5,5,5';
 
 let fastifyMock;
 let db;

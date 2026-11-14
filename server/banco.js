@@ -1,4 +1,4 @@
-// Banco de dados: schema, indices e seed a partir do kit (REGRAS-DEMO-v1).
+// Banco de dados: schema, índices e seed a partir do kit (REGRAS-DEMO-v1).
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,7 +8,10 @@ import { registrarEvento } from './eventos.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PASTA_DADOS_KIT = join(__dirname, '..', 'kit', 'data');
 
-// Parser simples de CSV: os arquivos do kit nao tem virgula nem aspas dentro de campos.
+// Teto de solicitações sintéticas no banco: acima disso as mais antigas saem.
+export const LIMITE_SINTETICAS = 50;
+
+// Parser simples de CSV: os arquivos do kit não têm vírgula nem aspas dentro de campos.
 function lerCsv(caminho) {
   const texto = readFileSync(caminho, 'utf8').trim();
   const linhas = texto.split(/\r?\n/);
@@ -24,13 +27,13 @@ function lerCsv(caminho) {
 }
 
 // "Aurora Demo" -> "aurora"
-function normalizarConvenio(nome) {
-  return nome.trim().split(/\s+/)[0].toLowerCase();
+export function normalizarConvenio(nome) {
+  return String(nome ?? '').trim().split(/\s+/)[0].toLowerCase();
 }
 
 // "Procedimento DEMO-2" -> "DEMO-2"
-function normalizarProcedimento(nome) {
-  return nome.replace(/^Procedimento\s+/i, '').trim();
+export function normalizarProcedimento(nome) {
+  return String(nome ?? '').replace(/^Procedimento\s+/i, '').trim();
 }
 
 function criarTabelas(db) {
@@ -39,8 +42,10 @@ function criarTabelas(db) {
       id TEXT PRIMARY KEY,
       nome TEXT NOT NULL,
       status_integracao TEXT NOT NULL,
+      status_padrao TEXT NOT NULL,
       disjuntor TEXT NOT NULL,
       falhas_seguidas INTEGER NOT NULL DEFAULT 0,
+      aberto_em TEXT,
       tempo_limite_ms INTEGER NOT NULL
     );
 
@@ -66,7 +71,8 @@ function criarTabelas(db) {
       criado_em TEXT NOT NULL,
       respondido_em TEXT,
       latencia_ms INTEGER,
-      status_esperado_kit TEXT
+      status_esperado_kit TEXT,
+      sintetica INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_solicitacoes_convenio_status ON solicitacoes(convenio, status);
 
@@ -100,6 +106,17 @@ function criarTabelas(db) {
       recebido_em TEXT NOT NULL
     );
 
+    -- Uma linha por chamada à API simulada. Base das métricas de latência (p50/p95).
+    CREATE TABLE IF NOT EXISTS chamadas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      convenio TEXT NOT NULL,
+      solicitacao TEXT NOT NULL,
+      latencia_ms INTEGER NOT NULL,
+      sucesso INTEGER NOT NULL,
+      horario TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_chamadas_convenio ON chamadas(convenio);
+
     CREATE TABLE IF NOT EXISTS pacientes (
       patient_id TEXT PRIMARY KEY,
       nome TEXT,
@@ -121,7 +138,7 @@ function criarTabelas(db) {
   `);
 }
 
-// Abre (ou cria) o arquivo de banco. Use ':memory:' para banco efemero (testes).
+// Abre (ou cria) o arquivo de banco. Use ':memory:' para banco efêmero (testes).
 export function abrirBanco(caminhoArquivo = 'gubo_autorizador.db') {
   const db = new Database(caminhoArquivo);
   if (caminhoArquivo !== ':memory:') {
@@ -136,6 +153,7 @@ function limparTabelas(db) {
     DELETE FROM documentos;
     DELETE FROM tarefas_humanas;
     DELETE FROM eventos;
+    DELETE FROM chamadas;
     DELETE FROM solicitacoes;
     DELETE FROM regras;
     DELETE FROM convenios;
@@ -149,12 +167,12 @@ export function seedBanco(db) {
   limparTabelas(db);
 
   const inserirConvenio = db.prepare(`
-    INSERT INTO convenios (id, nome, status_integracao, disjuntor, falhas_seguidas, tempo_limite_ms)
-    VALUES (?, ?, ?, ?, 0, ?)
+    INSERT INTO convenios (id, nome, status_integracao, status_padrao, disjuntor, falhas_seguidas, aberto_em, tempo_limite_ms)
+    VALUES (?, ?, ?, ?, 'fechado', 0, NULL, ?)
   `);
-  inserirConvenio.run('aurora', 'Aurora Demo', 'ok', 'fechado', 2000);
-  inserirConvenio.run('horizonte', 'Horizonte Demo', 'ok', 'fechado', 2000);
-  inserirConvenio.run('jardim', 'Jardim Demo', 'fora', 'fechado', 2000);
+  inserirConvenio.run('aurora', 'Aurora Demo', 'ok', 'ok', 2000);
+  inserirConvenio.run('horizonte', 'Horizonte Demo', 'ok', 'ok', 2000);
+  inserirConvenio.run('jardim', 'Jardim Demo', 'fora', 'fora', 2000);
 
   const inserirRegra = db.prepare(`
     INSERT INTO regras (convenio, procedimento, exige_documento, acao, fonte, versao)
@@ -192,7 +210,7 @@ export function seedBanco(db) {
     inserirGuia.run(guia);
   }
 
-  // Mapa patient_id -> procedimento normalizado, usado pela fila de autorizacao.
+  // Mapa patient_id -> procedimento normalizado, usado pela fila de autorização.
   const agendamentos = lerCsv(join(PASTA_DADOS_KIT, 'agendamentos_sinteticos.csv'));
   const procedimentoPorPaciente = new Map();
   for (const agendamento of agendamentos) {
@@ -201,8 +219,8 @@ export function seedBanco(db) {
 
   const fila = lerCsv(join(PASTA_DADOS_KIT, 'fila_autorizacao_mock.csv'));
   const inserirSolicitacao = db.prepare(`
-    INSERT INTO solicitacoes (id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit)
-    VALUES (@id, @paciente, @convenio, @procedimento, 'recebida', NULL, NULL, NULL, 0, @criado_em, NULL, NULL, @status_esperado_kit)
+    INSERT INTO solicitacoes (id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica)
+    VALUES (@id, @paciente, @convenio, @procedimento, 'recebida', NULL, NULL, NULL, 0, @criado_em, NULL, NULL, @status_esperado_kit, 0)
   `);
   const agora = new Date().toISOString();
   for (const linha of fila) {
@@ -225,7 +243,7 @@ export function seedBanco(db) {
   }
 }
 
-// Reinicia uma solicitacao para 'recebida', limpando o resultado anterior e as tarefas abertas.
+// Reinicia uma solicitação para 'recebida', limpando o resultado anterior e as tarefas abertas.
 export function reiniciarSolicitacao(db, id) {
   const atual = db.prepare('SELECT status FROM solicitacoes WHERE id = ?').get(id);
   if (!atual) return;
@@ -237,8 +255,8 @@ export function reiniciarSolicitacao(db, id) {
     WHERE id = ?
   `).run(id);
   db.prepare('DELETE FROM tarefas_humanas WHERE solicitacao = ?').run(id);
-  // Documentos anexados tambem saem: o estado inicial do kit nao tem documento, entao
-  // reiniciar a fila sempre reproduz os mesmos tres resultados na demo.
+  // Documentos anexados também saem: o estado inicial do kit não tem documento, então
+  // reiniciar a fila sempre reproduz os mesmos três resultados na demo.
   db.prepare('DELETE FROM documentos WHERE solicitacao = ?').run(id);
 
   registrarEvento(db, {
@@ -249,4 +267,88 @@ export function reiniciarSolicitacao(db, id) {
     regraUsada: null,
     ator: 'sistema',
   });
+}
+
+// Volta um convênio ao estado do kit: disjuntor fechado, sem falhas acumuladas e
+// status_integracao igual ao que o seed definiu (status_padrao).
+export function restaurarConvenio(db, convenioId) {
+  const alterou = db.prepare(`
+    UPDATE convenios
+    SET disjuntor = 'fechado', falhas_seguidas = 0, aberto_em = NULL, status_integracao = status_padrao
+    WHERE id = ?
+  `).run(convenioId);
+  return alterou.changes > 0;
+}
+
+export function restaurarTodosOsConvenios(db) {
+  db.prepare(`
+    UPDATE convenios
+    SET disjuntor = 'fechado', falhas_seguidas = 0, aberto_em = NULL, status_integracao = status_padrao
+  `).run();
+}
+
+// Cria N solicitações sintéticas por convênio, copiando o procedimento do caso do kit
+// daquele convênio (nada fixo no código: o procedimento vem da própria base).
+export function criarSolicitacoesSinteticas(db, porConvenio = 5) {
+  const basePorConvenio = db.prepare(`
+    SELECT convenio, paciente, procedimento
+    FROM solicitacoes
+    WHERE sintetica = 0
+    GROUP BY convenio
+    ORDER BY convenio
+  `).all();
+
+  const ultimo = db.prepare("SELECT id FROM solicitacoes WHERE id LIKE 'DEMO-S%' ORDER BY id DESC LIMIT 1").get();
+  let proximoNumero = ultimo ? Number(ultimo.id.replace('DEMO-S', '')) + 1 : 1;
+
+  const inserir = db.prepare(`
+    INSERT INTO solicitacoes (id, paciente, convenio, procedimento, status, tentativas, criado_em, sintetica)
+    VALUES (?, ?, ?, ?, 'recebida', 0, ?, 1)
+  `);
+
+  const criadas = [];
+  const agora = new Date().toISOString();
+  for (const base of basePorConvenio) {
+    for (let indice = 0; indice < porConvenio; indice += 1) {
+      const id = `DEMO-S${String(proximoNumero).padStart(3, '0')}`;
+      proximoNumero += 1;
+      inserir.run(id, base.paciente, base.convenio, base.procedimento, agora);
+      registrarEvento(db, {
+        solicitacao: id,
+        statusDe: null,
+        statusPara: 'recebida',
+        motivo: `solicitacao sintetica de carga (${base.convenio})`,
+        regraUsada: null,
+        ator: 'sistema',
+      });
+      criadas.push({ id, convenio: base.convenio });
+    }
+  }
+
+  apararSinteticas(db);
+  return criadas;
+}
+
+// Mantém no máximo LIMITE_SINTETICAS sintéticas: as mais antigas saem junto com suas
+// tarefas, documentos e chamadas. Os eventos NÃO são apagados: o log é append-only.
+export function apararSinteticas(db, limite = LIMITE_SINTETICAS) {
+  const excedentes = db.prepare(`
+    SELECT id FROM solicitacoes
+    WHERE sintetica = 1
+    ORDER BY criado_em DESC, id DESC
+    LIMIT -1 OFFSET ?
+  `).all(limite);
+
+  const apagarSolicitacao = db.prepare('DELETE FROM solicitacoes WHERE id = ?');
+  const apagarTarefas = db.prepare('DELETE FROM tarefas_humanas WHERE solicitacao = ?');
+  const apagarDocumentos = db.prepare('DELETE FROM documentos WHERE solicitacao = ?');
+  const apagarChamadas = db.prepare('DELETE FROM chamadas WHERE solicitacao = ?');
+
+  for (const linha of excedentes) {
+    apagarTarefas.run(linha.id);
+    apagarDocumentos.run(linha.id);
+    apagarChamadas.run(linha.id);
+    apagarSolicitacao.run(linha.id);
+  }
+  return excedentes.length;
 }

@@ -1,7 +1,9 @@
-// Motor de decisão: regra fixa por convênio, chamada real por HTTP à API simulada e trava de autorização.
+// Motor de decisão: regra fixa por convênio, chamada real por HTTP à API simulada,
+// retentativa com espera crescente, disjuntor por convênio e trava de autorização.
 import { registrarEvento } from './eventos.js';
-import { definirModo, resetarModos } from './apiSimulada.js';
 import { reiniciarSolicitacao } from './banco.js';
+import { avaliarAntesDaChamada, registrarFalha, registrarSucesso } from './disjuntor.js';
+import { publicar } from './barramento.js';
 
 // Colunas que uma transição pode escrever. Allowlist explícita: o UPDATE é montado só com
 // nomes daqui, nunca com texto vindo de fora. Valores sempre por placeholder.
@@ -16,14 +18,34 @@ const COLUNAS_DE_TRANSICAO = new Set([
 
 const STATUS_FINAIS = new Set(['autorizada', 'pendente_documento', 'erro_integracao', 'tarefa_humana']);
 
+// Espera crescente entre as tentativas. Os testes encurtam por variável de ambiente.
+function esperasDeRetentativa() {
+  const configurado = process.env.ESPERAS_RETENTATIVA_MS;
+  const lista = (configurado ?? '200,400,800').split(',').map(Number).filter((valor) => Number.isFinite(valor) && valor >= 0);
+  return lista.length > 0 ? lista : [200, 400, 800];
+}
+
+const MAXIMO_DE_TENTATIVAS = 3;
+
+function aguardar(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function obterUrlMock() {
   if (process.env.MOCK_URL) return process.env.MOCK_URL;
   const porta = process.env.PORT || 3000;
   return `http://127.0.0.1:${porta}/mock`;
 }
 
+// Texto legível do erro, pro motivo da tarefa humana ("HTTP 503", "timeout"...).
+function descreverErro(erro) {
+  if (erro?.startsWith('http_')) return `HTTP ${erro.replace('http_', '')}`;
+  if (erro === 'timeout') return 'timeout';
+  return 'erro de rede';
+}
+
 // Chamada real por HTTP, com timeout por AbortController e medição de latência.
-async function chamarApiSimulada(convenioId, { solicitacaoId, procedimento, temDocumento }, tempoLimiteMs) {
+async function chamarApiSimulada(convenioId, { solicitacaoId, procedimento, temDocumento, modoSimulado }, tempoLimiteMs) {
   const controlador = new AbortController();
   const temporizador = setTimeout(() => controlador.abort(), tempoLimiteMs);
   const inicio = Date.now();
@@ -31,7 +53,12 @@ async function chamarApiSimulada(convenioId, { solicitacaoId, procedimento, temD
     const resposta = await fetch(`${obterUrlMock()}/${convenioId}/autorizar`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ solicitacao: solicitacaoId, procedimento, tem_documento: temDocumento }),
+      body: JSON.stringify({
+        solicitacao: solicitacaoId,
+        procedimento,
+        tem_documento: temDocumento,
+        ...(modoSimulado ? { modo_simulado: modoSimulado } : {}),
+      }),
       signal: controlador.signal,
     });
     const latenciaMs = Date.now() - inicio;
@@ -49,6 +76,14 @@ async function chamarApiSimulada(convenioId, { solicitacaoId, procedimento, temD
   }
 }
 
+// Uma linha por chamada à API simulada: é daqui que saem p50 e p95 das métricas.
+function registrarChamada(db, { convenio, solicitacao, latenciaMs, sucesso }) {
+  db.prepare(`
+    INSERT INTO chamadas (convenio, solicitacao, latencia_ms, sucesso, horario)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(convenio, solicitacao, latenciaMs, sucesso ? 1 : 0, new Date().toISOString());
+}
+
 function buscarConvenio(db, convenioId) {
   return db.prepare('SELECT * FROM convenios WHERE id = ?').get(convenioId);
 }
@@ -61,33 +96,23 @@ function temDocumentoAnexado(db, solicitacaoId) {
   return Boolean(db.prepare('SELECT 1 FROM documentos WHERE solicitacao = ? LIMIT 1').get(solicitacaoId));
 }
 
-// Saúde da integração, só observabilidade: conta falhas seguidas e só piora o status dentro de
-// uma sequência de falhas (nunca "promove" um convênio que o kit já marca como fora).
-// O motor NÃO curto-circuita por disjuntor aberto: ele continua tentando e registrando.
-function registrarFalhaIntegracao(db, convenioId) {
-  const convenio = db.prepare('SELECT status_integracao, disjuntor, falhas_seguidas FROM convenios WHERE id = ?').get(convenioId);
-  if (!convenio) return;
-  const falhas = convenio.falhas_seguidas + 1;
-  const abriu = falhas >= 3;
-  const status = abriu || convenio.status_integracao === 'fora' ? 'fora' : 'degradado';
-  db.prepare('UPDATE convenios SET falhas_seguidas = ?, status_integracao = ?, disjuntor = ? WHERE id = ?')
-    .run(falhas, status, abriu ? 'aberto' : convenio.disjuntor, convenioId);
-}
-
-function registrarSucessoIntegracao(db, convenioId) {
-  db.prepare("UPDATE convenios SET falhas_seguidas = 0, status_integracao = 'ok', disjuntor = 'fechado' WHERE id = ?")
-    .run(convenioId);
-}
-
-// Texto de encaminhamento montado por template local (não é chamada de LLM) e prazo curto,
+// Texto de encaminhamento montado por template local (não é chamada de LLM) e prazo de 2 h,
 // pra quem pega a tarefa saber o que fazer sem abrir a linha do tempo.
 function criarTarefaHumana(db, solicitacaoId, motivo, prioridade = 'normal') {
   const prazo = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   const textoSugerido = `Solicitação ${solicitacaoId}: ${motivo}. Conferir no portal do convênio e responder manualmente. Não emitir autorização sem número devolvido pelo convênio.`;
-  db.prepare(`
+  const resultado = db.prepare(`
     INSERT INTO tarefas_humanas (solicitacao, motivo, texto_ia, prioridade, responsavel, prazo, status)
     VALUES (?, ?, ?, ?, NULL, ?, 'aberta')
   `).run(solicitacaoId, motivo, textoSugerido, prioridade, prazo);
+
+  publicar('tarefa_criada', {
+    id: resultado.lastInsertRowid,
+    solicitacao: solicitacaoId,
+    motivo,
+    prioridade,
+    prazo,
+  });
 }
 
 // Muda o status, grava os campos e registra o evento correspondente. Muta o objeto local
@@ -116,10 +141,88 @@ function transicionar(db, solicitacao, novoStatus, { motivo, regraUsada, numeroA
   });
 
   Object.assign(solicitacao, campos);
+
+  publicar('solicitacao_atualizada', {
+    id: solicitacao.id,
+    convenio: solicitacao.convenio,
+    status: novoStatus,
+    status_de: statusAnterior,
+    motivo: campos.motivo ?? null,
+    regra_usada: campos.regra_usada ?? null,
+    numero_autorizacao: solicitacao.numero_autorizacao ?? null,
+    latencia_ms: campos.latencia_ms ?? null,
+  });
+}
+
+// Anota a tentativa que falhou sem mudar o status: a solicitação continua em análise.
+function anotarTentativa(db, solicitacao, motivo) {
+  registrarEvento(db, {
+    solicitacao: solicitacao.id,
+    statusDe: solicitacao.status,
+    statusPara: solicitacao.status,
+    motivo,
+    regraUsada: solicitacao.regra_usada ?? null,
+    ator: 'sistema',
+  });
+  publicar('solicitacao_atualizada', {
+    id: solicitacao.id,
+    convenio: solicitacao.convenio,
+    status: solicitacao.status,
+    status_de: solicitacao.status,
+    motivo,
+    regra_usada: solicitacao.regra_usada ?? null,
+    numero_autorizacao: null,
+    latencia_ms: null,
+  });
+}
+
+// Chama a API simulada com retentativa e espera crescente (200, 400, 800 ms).
+// No meio_aberto é uma única chamada de teste, sem retentativa.
+async function chamarComRetentativa(db, solicitacao, convenioInfo, { temDocumento, estadoDisjuntor, modoSimulado }) {
+  const esperas = esperasDeRetentativa();
+  const maximo = estadoDisjuntor === 'meio_aberto' ? 1 : MAXIMO_DE_TENTATIVAS;
+  let ultimoResultado = null;
+
+  for (let tentativa = 1; tentativa <= maximo; tentativa += 1) {
+    db.prepare('UPDATE solicitacoes SET tentativas = ? WHERE id = ?').run(tentativa, solicitacao.id);
+
+    const resultado = await chamarApiSimulada(
+      convenioInfo.id,
+      { solicitacaoId: solicitacao.id, procedimento: solicitacao.procedimento, temDocumento, modoSimulado },
+      convenioInfo.tempo_limite_ms,
+    );
+    registrarChamada(db, {
+      convenio: convenioInfo.id,
+      solicitacao: solicitacao.id,
+      latenciaMs: resultado.latenciaMs,
+      sucesso: !resultado.falhaIntegracao,
+    });
+    ultimoResultado = { ...resultado, tentativas: tentativa };
+
+    if (!resultado.falhaIntegracao) {
+      registrarSucesso(db, convenioInfo.id);
+      return ultimoResultado;
+    }
+
+    const { estado } = registrarFalha(db, convenioInfo.id);
+    const erroLegivel = descreverErro(resultado.erro);
+    const espera = esperas[tentativa - 1] ?? esperas[esperas.length - 1];
+    const aindaTentaDeNovo = tentativa < maximo && estado !== 'aberto';
+
+    anotarTentativa(db, solicitacao, aindaTentaDeNovo
+      ? `tentativa ${tentativa} de ${maximo} falhou (${erroLegivel}), nova tentativa em ${espera} ms`
+      : `tentativa ${tentativa} de ${maximo} falhou (${erroLegivel})`);
+
+    // Se o disjuntor abriu no meio da sequência, para de insistir: é exatamente o papel dele.
+    if (!aindaTentaDeNovo) break;
+    await aguardar(espera);
+  }
+
+  return ultimoResultado;
 }
 
 // Processa uma solicitação: decide pela regra do convênio e chama a API simulada de verdade.
-export async function processarSolicitacao(db, solicitacaoId) {
+export async function processarSolicitacao(db, solicitacaoId, { modoSimulado } = {}) {
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get(solicitacaoId);
   if (!solicitacao) return;
 
@@ -151,31 +254,38 @@ export async function processarSolicitacao(db, solicitacaoId) {
     regraUsada: fonte,
   });
 
+  // Disjuntor aberto: nem chama a API. Vai direto pra tarefa humana.
+  const portao = avaliarAntesDaChamada(db, convenioInfo.id);
+  if (!portao.permitido) {
+    const motivo = `${portao.motivo}, encaminhado para humano sem chamar a API${sufixo}`;
+    transicionar(db, solicitacao, 'tarefa_humana', { motivo, regraUsada: fonte });
+    criarTarefaHumana(db, solicitacao.id, motivo, 'alta');
+    return;
+  }
+
   const temDocumento = regra.acao === 'pedir_documento' ? temDocumentoAnexado(db, solicitacao.id) : false;
-  db.prepare('UPDATE solicitacoes SET tentativas = tentativas + 1 WHERE id = ?').run(solicitacao.id);
 
-  const resultado = await chamarApiSimulada(
-    convenioInfo.id,
-    { solicitacaoId: solicitacao.id, procedimento: solicitacao.procedimento, temDocumento },
-    convenioInfo.tempo_limite_ms,
-  );
+  const resultado = await chamarComRetentativa(db, solicitacao, convenioInfo, {
+    temDocumento,
+    estadoDisjuntor: portao.estado,
+    modoSimulado,
+  });
 
-  // Falha de integração (503, timeout ou erro de rede): erro_integracao e depois tarefa humana.
+  // Falha de integração depois de esgotar as tentativas: erro_integracao e tarefa humana.
   // Nunca inventa autorização.
   if (resultado.falhaIntegracao) {
-    registrarFalhaIntegracao(db, convenioInfo.id);
+    const erroLegivel = descreverErro(resultado.erro);
     transicionar(db, solicitacao, 'erro_integracao', {
-      motivo: `falha de integração com ${convenioInfo.nome}: ${resultado.erro}${sufixo}`,
+      motivo: `falha de integração com ${convenioInfo.nome}: ${erroLegivel}${sufixo}`,
       regraUsada: fonte,
       latenciaMs: resultado.latenciaMs,
     });
-    const motivoHumano = `encaminhado para humano: ${convenioInfo.nome} indisponível (${resultado.erro}), sem inventar autorização`;
+    const motivoHumano = `${convenioInfo.nome} fora do ar após ${resultado.tentativas} tentativas (${erroLegivel}), sem inventar autorização`;
     transicionar(db, solicitacao, 'tarefa_humana', { motivo: motivoHumano, regraUsada: fonte });
     criarTarefaHumana(db, solicitacao.id, motivoHumano, 'alta');
     return;
   }
 
-  registrarSucessoIntegracao(db, convenioInfo.id);
   const corpo = resultado.corpo ?? {};
 
   if (corpo.status === 'autorizado') {
@@ -219,6 +329,7 @@ export async function processarSolicitacao(db, solicitacaoId) {
 }
 
 // Processa várias solicitações em paralelo (uma fila presa num convênio não trava as outras).
+// A fila isolada por convênio está em filas.js; esta função serve os casos e os testes.
 export function processarFila(db, ids) {
   return Promise.allSettled(ids.map((id) => processarSolicitacao(db, id)));
 }
@@ -226,20 +337,22 @@ export function processarFila(db, ids) {
 // Cada caso abaixo corresponde a uma linha de kit/scenarios/03-casos.md.
 // Retornam {passou, solicitacao} pra servir tanto o node:test quanto o /api/testes/rodar.
 
+// Os casos forcam o modo da propria chamada ('normal' / 'sem_numero'), em vez de mexer no
+// modo global do convenio: rodar os casos nao muda o comportamento da demo ao vivo.
 export async function casoAuroraAutoriza(db) {
-  await processarSolicitacao(db, 'DEMO-R1');
+  await processarSolicitacao(db, 'DEMO-R1', { modoSimulado: 'normal' });
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get('DEMO-R1');
   return { passou: solicitacao.status === 'autorizada' && solicitacao.numero_autorizacao === 'DEMO-AUTH-1', solicitacao };
 }
 
 export async function casoHorizonteSemDocumentoFicaPendente(db) {
-  await processarSolicitacao(db, 'DEMO-R2');
+  await processarSolicitacao(db, 'DEMO-R2', { modoSimulado: 'normal' });
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get('DEMO-R2');
   return { passou: solicitacao.status === 'pendente_documento', solicitacao };
 }
 
 export async function casoJardimIndisponivelCriaTarefa(db) {
-  await processarSolicitacao(db, 'DEMO-R3');
+  await processarSolicitacao(db, 'DEMO-R3', { modoSimulado: 'normal' });
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get('DEMO-R3');
   const tarefa = db.prepare('SELECT 1 FROM tarefas_humanas WHERE solicitacao = ?').get('DEMO-R3');
   return { passou: solicitacao.status === 'tarefa_humana' && Boolean(tarefa), solicitacao };
@@ -247,13 +360,7 @@ export async function casoJardimIndisponivelCriaTarefa(db) {
 
 export async function casoSemNumeroNaoAutoriza(db) {
   reiniciarSolicitacao(db, 'DEMO-R1');
-  definirModo('aurora', 'sem_numero');
-  try {
-    await processarSolicitacao(db, 'DEMO-R1');
-  } finally {
-    // Restaura o modo mesmo se o processamento estourar: o modo é global do processo.
-    definirModo('aurora', 'normal');
-  }
+  await processarSolicitacao(db, 'DEMO-R1', { modoSimulado: 'sem_numero' });
   const solicitacao = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get('DEMO-R1');
   const tarefa = db.prepare('SELECT 1 FROM tarefas_humanas WHERE solicitacao = ?').get('DEMO-R1');
   const naoInventouNumero = !solicitacao.numero_autorizacao;
@@ -264,8 +371,9 @@ export async function casoSemNumeroNaoAutoriza(db) {
 }
 
 // Roda os 4 casos do kit num banco já seedado. Usado por POST /api/testes/rodar.
+// Hermético: cada caso força o modo da sua própria chamada, então rodar os testes no meio
+// da demo não mexe no que o apresentador configurou (Jardim derrubado continua derrubado).
 export async function rodarCasosBasicos(db) {
-  resetarModos();
   const casos = [
     ['Aurora Demo: retorna autorização DEMO', casoAuroraAutoriza],
     ['Horizonte Demo sem documento: mantém pendência', casoHorizonteSemDocumentoFicaPendente],

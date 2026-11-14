@@ -21,6 +21,16 @@ export function resetarModos() {
   modosPorConvenio.clear();
 }
 
+// Modo padrão do kit: aurora e horizonte normais; jardim também 'normal', porque o
+// indisponível dele já é o comportamento nativo da API simulada (responde 503).
+export function restaurarModoPadrao(convenio) {
+  modosPorConvenio.delete(convenio);
+}
+
+export function listarModos() {
+  return Object.fromEntries(CONVENIOS_CONHECIDOS.map((convenio) => [convenio, obterModo(convenio)]));
+}
+
 // Latência aleatória de 100 a 800 ms. Nos testes, fixa por MOCK_LATENCIA_MS.
 function calcularLatenciaMs() {
   const fixa = Number(process.env.MOCK_LATENCIA_MS);
@@ -40,6 +50,18 @@ const SCHEMA_ROTA_MOCK = {
       convenio: { type: 'string', enum: [...CONVENIOS_CONHECIDOS] },
     },
   },
+  body: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      solicitacao: { type: 'string', maxLength: 64 },
+      procedimento: { type: ['string', 'null'], maxLength: 64 },
+      tem_documento: { type: 'boolean' },
+      // Modo só desta chamada. Os casos do kit usam isso pra rodar sem mexer no modo
+      // global do convênio (senão rodar os testes mudaria o comportamento da demo ao vivo).
+      modo_simulado: { type: 'string', enum: [...MODOS_VALIDOS] },
+    },
+  },
 };
 
 export function registrarRotasMockAutorizacao(fastify) {
@@ -47,7 +69,7 @@ export function registrarRotasMockAutorizacao(fastify) {
     try {
       const { convenio } = request.params;
       const corpo = request.body ?? {};
-      const modo = obterModo(convenio);
+      const modo = corpo.modo_simulado ?? obterModo(convenio);
 
       if (modo === 'caos') {
         const vaiEstourarTimeout = Math.random() < 0.5;
