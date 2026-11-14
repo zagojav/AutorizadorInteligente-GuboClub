@@ -1,0 +1,11 @@
+appointment_id,patient_id,data,hora,procedimento,status
+DEMO-A001,DEMO-P001,2026-09-12,09:15,Procedimento DEMO-2,confirmado
+DEMO-A002,DEMO-P002,2026-09-12,09:30,Procedimento DEMO-3,confirmado
+DEMO-A003,DEMO-P003,2026-09-12,09:45,Procedimento DEMO-1,confirmado
+DEMO-A004,DEMO-P004,2026-09-12,10:00,Procedimento DEMO-2,confirmado
+DEMO-A005,DEMO-P005,2026-09-12,10:15,Procedimento DEMO-3,confirmado
+DEMO-A006,DEMO-P006,2026-09-12,10:30,Procedimento DEMO-1,confirmado
+DEMO-A007,DEMO-P007,2026-09-12,10:45,Procedimento DEMO-2,confirmado
+DEMO-A008,DEMO-P008,2026-09-12,11:00,Procedimento DEMO-3,confirmado
+DEMO-A009,DEMO-P009,2026-09-12,11:15,Procedimento DEMO-1,confirmado
+DEMO-A010,DEMO-P010,2026-09-12,11:30,Procedimento DEMO-2,confirmado

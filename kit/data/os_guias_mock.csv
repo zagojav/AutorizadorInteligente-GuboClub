@@ -1,0 +1,11 @@
+os_id,patient_id,autorizacao,assinatura,status
+DEMO-OS001,DEMO-P001,,pendente,cadastro_divergente
+DEMO-OS002,DEMO-P002,,pendente,aguarda_autorizacao
+DEMO-OS003,DEMO-P003,DEMO-AUTH-3,pendente,pronta
+DEMO-OS004,DEMO-P004,,pendente,cadastro_divergente
+DEMO-OS005,DEMO-P005,,pendente,aguarda_autorizacao
+DEMO-OS006,DEMO-P006,DEMO-AUTH-6,pendente,pronta
+DEMO-OS007,DEMO-P007,,pendente,cadastro_divergente
+DEMO-OS008,DEMO-P008,,pendente,aguarda_autorizacao
+DEMO-OS009,DEMO-P009,DEMO-AUTH-9,pendente,pronta
+DEMO-OS010,DEMO-P010,,pendente,cadastro_divergente

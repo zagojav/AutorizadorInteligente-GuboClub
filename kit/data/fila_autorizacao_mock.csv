@@ -1,0 +1,4 @@
+request_id,patient_id,convenio,status,autorizacao
+DEMO-R1,DEMO-P001,Aurora Demo,autorizado,DEMO-AUTH-1
+DEMO-R2,DEMO-P002,Horizonte Demo,pendente_documento,
+DEMO-R3,DEMO-P003,Jardim Demo,servico_indisponivel,

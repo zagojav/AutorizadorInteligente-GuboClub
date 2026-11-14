@@ -1,0 +1,11 @@
+patient_id,nome,documento,email,convenio,carteirinha,status_cadastro,consentimento_contato_simulado
+DEMO-P001,Paciente Exemplo 1,DEMO-SEM-VALIDADE-1,paciente1@example.invalid,Horizonte Demo,DEMO-C001,divergente,true
+DEMO-P002,Paciente Exemplo 2,DEMO-SEM-VALIDADE-2,paciente2@example.invalid,Jardim Demo,DEMO-C002,incompleto,true
+DEMO-P003,Paciente Exemplo 3,DEMO-SEM-VALIDADE-3,paciente3@example.invalid,Aurora Demo,DEMO-C003,correto,true
+DEMO-P004,Paciente Exemplo 4,DEMO-SEM-VALIDADE-4,paciente4@example.invalid,Horizonte Demo,DEMO-C004,divergente,false
+DEMO-P005,Paciente Exemplo 5,DEMO-SEM-VALIDADE-5,paciente5@example.invalid,Jardim Demo,DEMO-C005,incompleto,true
+DEMO-P006,Paciente Exemplo 6,DEMO-SEM-VALIDADE-6,paciente6@example.invalid,Aurora Demo,DEMO-C006,correto,true
+DEMO-P007,Paciente Exemplo 7,DEMO-SEM-VALIDADE-7,paciente7@example.invalid,Horizonte Demo,DEMO-C007,divergente,true
+DEMO-P008,Paciente Exemplo 8,DEMO-SEM-VALIDADE-8,paciente8@example.invalid,Jardim Demo,DEMO-C008,incompleto,false
+DEMO-P009,Paciente Exemplo 9,DEMO-SEM-VALIDADE-9,paciente9@example.invalid,Aurora Demo,DEMO-C009,correto,true
+DEMO-P010,Paciente Exemplo 10,DEMO-SEM-VALIDADE-10,paciente10@example.invalid,Horizonte Demo,DEMO-C010,divergente,true

@@ -1,0 +1,4 @@
+DOCUMENTO FICTÍCIO — SEM VALIDADE
+Nome: Paciente Exemplo 1
+Identificador: DEMO-SEM-VALIDADE-1
+Este arquivo pode ser usado para gerar imagens de teste, sempre com a marca DEMO.

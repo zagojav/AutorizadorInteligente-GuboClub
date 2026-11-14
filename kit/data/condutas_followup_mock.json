@@ -1,0 +1,27 @@
+{
+  "synthetic": true,
+  "cases": [
+    {
+      "patient_id": "DEMO-P001",
+      "data_consulta": "2026-09-12",
+      "texto_ficticio": "Realizar procedimento DEMO-1 em 15 dias e retornar em 30 dias.",
+      "tarefas_esperadas": [
+        {
+          "tipo": "procedimento",
+          "prazo": "2026-09-27"
+        },
+        {
+          "tipo": "retorno",
+          "prazo": "2026-10-12"
+        }
+      ],
+      "resposta_simulada": "Não consegui marcar",
+      "status_esperado": "ajuda_humana"
+    },
+    {
+      "patient_id": "DEMO-P004",
+      "resposta_simulada": "SAIR",
+      "status_esperado": "contato_interrompido"
+    }
+  ]
+}
