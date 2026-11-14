@@ -517,6 +517,20 @@ class AutorizadorTest {
   }
 
   @Test
+  @DisplayName("17b - CORS libera o Vite local e nenhuma outra origem")
+  void corsSoParaOVite() {
+    Resposta doVite = chamar("GET", "/api/saude", null, "origin", "http://localhost:5173");
+    assertEquals(200, doVite.codigo());
+    assertTrue(doVite.cabecalhos().getOrDefault("access-control-allow-origin", List.of())
+            .contains("http://localhost:5173"),
+        "esperava CORS pro Vite, cabecalhos: " + doVite.cabecalhos());
+
+    Resposta deOutraOrigem = chamar("GET", "/api/saude", null, "origin", "http://site-de-fora.invalid");
+    assertTrue(deOutraOrigem.cabecalhos().getOrDefault("access-control-allow-origin", List.of()).isEmpty(),
+        "nenhuma outra origem pode ser liberada: " + deOutraOrigem.cabecalhos());
+  }
+
+  @Test
   @DisplayName("18 - Carga sintetica cria 5 por convenio e respeita o limite")
   void cargaSintetica() {
     Map<String, Object> corpo = chamar("POST", "/api/simulacao/carga", null).mapa();

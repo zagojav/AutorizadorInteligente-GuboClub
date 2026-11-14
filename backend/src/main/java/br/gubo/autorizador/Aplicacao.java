@@ -61,6 +61,16 @@ public final class Aplicacao {
       configuracao.http.customCompression(compressao);
       // SSE fica aberto: sem timeout de requisicao assincrona.
       configuracao.http.asyncTimeout = 0L;
+
+      // CORS so pro Vite local, e so fora de producao. Sem '*' e sem credenciais: o
+      // navegador de outra origem nao ganha acesso a esta API por acidente.
+      if (!"production".equals(Config.texto("NODE_ENV"))) {
+        configuracao.bundledPlugins.enableCors(cors ->
+            cors.addRule(regra -> {
+              regra.allowHost("http://localhost:5173", "http://127.0.0.1:5173");
+              regra.allowCredentials = false;
+            }));
+      }
       configuracao.jetty.defaultHost = Config.texto("HOST", "127.0.0.1");
 
       if (Files.isDirectory(Caminhos.pastaDoFront())) {
