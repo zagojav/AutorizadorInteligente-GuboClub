@@ -99,7 +99,27 @@ public final class Metricas {
   }
 
   public static Map<String, Object> calcular(Banco banco) {
-    List<Long> latencias = latenciasDe(banco, null);
+    // Uma leitura para todos os convênios: quantidade de consultas não cresce com a lista.
+    List<Map<String, Object>> chamadas = banco.consultar(
+        "SELECT convenio, latencia_ms, sucesso FROM chamadas ORDER BY latencia_ms ASC");
+    List<Long> latencias = new ArrayList<>();
+    Map<String, List<Long>> latenciasPorConvenio = new LinkedHashMap<>();
+    Map<String, Long> falhasPorConvenio = new LinkedHashMap<>();
+    for (Map<String, Object> chamada : chamadas) {
+      String id = (String) chamada.get("convenio");
+      long latencia = ((Number) chamada.get("latencia_ms")).longValue();
+      latencias.add(latencia);
+      latenciasPorConvenio.computeIfAbsent(id, chave -> new ArrayList<>()).add(latencia);
+      if (((Number) chamada.get("sucesso")).longValue() == 0) falhasPorConvenio.merge(id, 1L, Long::sum);
+    }
+    Map<String, Long> tarefasPorConvenio = new LinkedHashMap<>();
+    for (Map<String, Object> linha : banco.consultar("""
+        SELECT s.convenio, COUNT(*) AS total FROM tarefas_humanas t
+        JOIN solicitacoes s ON s.id = t.solicitacao
+        WHERE t.status = 'aberta' GROUP BY s.convenio
+        """)) {
+      tarefasPorConvenio.put((String) linha.get("convenio"), ((Number) linha.get("total")).longValue());
+    }
     long totalDeChamadas = latencias.size();
     long falhasDeChamada = banco.contar("SELECT COUNT(*) AS total FROM chamadas WHERE sucesso = 0");
     // Solicitacoes que o disjuntor barrou antes de chamar a API tambem sao falha detectada.
@@ -114,14 +134,9 @@ public final class Metricas {
     Map<String, Object> porConvenio = new LinkedHashMap<>();
     for (Map<String, Object> convenio : convenios) {
       String id = (String) convenio.get("id");
-      List<Long> suas = latenciasDe(banco, id);
-      long falhas = banco.contar(
-          "SELECT COUNT(*) AS total FROM chamadas WHERE convenio = ? AND sucesso = 0", id);
-      long tarefas = banco.contar("""
-          SELECT COUNT(*) AS total FROM tarefas_humanas t
-          JOIN solicitacoes s ON s.id = t.solicitacao
-          WHERE s.convenio = ? AND t.status = 'aberta'
-          """, id);
+      List<Long> suas = latenciasPorConvenio.getOrDefault(id, List.of());
+      long falhas = falhasPorConvenio.getOrDefault(id, 0L);
+      long tarefas = tarefasPorConvenio.getOrDefault(id, 0L);
 
       porConvenio.put(id, Json.mapa(
           "nome", convenio.get("nome"),

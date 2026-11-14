@@ -20,6 +20,6 @@ public final class Eventos {
   }
 
   public static List<Map<String, Object>> linhaDoTempo(Banco banco, String solicitacaoId) {
-    return banco.consultar("SELECT * FROM eventos WHERE solicitacao = ? ORDER BY id ASC", solicitacaoId);
+    return banco.consultar("SELECT id, solicitacao, status_de, status_para, motivo, regra_usada, ator, horario FROM eventos WHERE solicitacao = ? ORDER BY id ASC", solicitacaoId);
   }
 }

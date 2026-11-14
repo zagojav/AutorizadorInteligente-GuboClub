@@ -30,7 +30,7 @@ public final class Disjuntor {
   }
 
   private Map<String, Object> buscarConvenio(String convenioId) {
-    return banco.consultarUm("SELECT * FROM convenios WHERE id = ?", convenioId);
+    return banco.consultarUm("SELECT id, nome, status_integracao, status_padrao, disjuntor, falhas_seguidas, aberto_em, tempo_limite_ms FROM convenios WHERE id = ?", convenioId);
   }
 
   private void anotarMudanca(Map<String, Object> convenio, String de, String para, String motivo) {

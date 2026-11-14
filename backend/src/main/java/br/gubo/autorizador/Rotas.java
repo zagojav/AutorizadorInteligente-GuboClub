@@ -140,7 +140,7 @@ public final class Rotas {
 
     servidor.get("/api/fila", contexto -> {
       try {
-        contexto.json(banco.consultar("SELECT * FROM solicitacoes ORDER BY sintetica, id"));
+        contexto.json(banco.consultar("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes ORDER BY sintetica, id"));
       } catch (RuntimeException erro) {
         responderErro(contexto, 500, "falha ao consultar a fila", erro);
       }
@@ -165,7 +165,7 @@ public final class Rotas {
 
         contexto.json(Json.mapa(
             "processadas", (long) ids.size(),
-            "fila", banco.consultar("SELECT * FROM solicitacoes ORDER BY sintetica, id")));
+            "fila", banco.consultar("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes ORDER BY sintetica, id")));
       } catch (RuntimeException erro) {
         responderErro(contexto, 500, "falha ao iniciar a fila", erro);
       }
@@ -202,7 +202,7 @@ public final class Rotas {
         }
         banco.reiniciarSolicitacao(id);
         motor.processarSolicitacao(id);
-        contexto.json(banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", id));
+        contexto.json(banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", id));
       } catch (RuntimeException erro) {
         responderErro(contexto, 500, "falha ao reprocessar a solicitação", erro);
       }
@@ -216,7 +216,7 @@ public final class Rotas {
           requisicaoInvalida(contexto);
           return;
         }
-        Map<String, Object> solicitacao = banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", id);
+        Map<String, Object> solicitacao = banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", id);
         if (solicitacao == null) {
           contexto.status(404).json(Json.mapa("erro", "solicitação não encontrada"));
           return;
@@ -238,7 +238,7 @@ public final class Rotas {
             (String) solicitacao.get("regra_usada"), "humano");
 
         motor.processarSolicitacao(id);
-        Map<String, Object> atualizada = banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", id);
+        Map<String, Object> atualizada = banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", id);
         atualizada.put("sugestao_ia", sugestao);
         contexto.json(atualizada);
       } catch (IOException | RuntimeException erro) {
@@ -249,7 +249,7 @@ public final class Rotas {
 
     servidor.get("/api/tarefas", contexto -> {
       try {
-        contexto.json(banco.consultar("SELECT * FROM tarefas_humanas ORDER BY id"));
+        contexto.json(banco.consultar("SELECT id, solicitacao, motivo, texto_ia, origem_texto, prioridade, responsavel, prazo, status FROM tarefas_humanas ORDER BY id"));
       } catch (RuntimeException erro) {
         responderErro(contexto, 500, "falha ao consultar as tarefas", erro);
       }
@@ -454,7 +454,7 @@ public final class Rotas {
       return;
     }
     long tarefaId = Long.parseLong(idBruto);
-    Map<String, Object> tarefa = banco.consultarUm("SELECT * FROM tarefas_humanas WHERE id = ?", tarefaId);
+    Map<String, Object> tarefa = banco.consultarUm("SELECT id, solicitacao, motivo, texto_ia, origem_texto, prioridade, responsavel, prazo, status FROM tarefas_humanas WHERE id = ?", tarefaId);
     if (tarefa == null) {
       contexto.status(404).json(Json.mapa("erro", "tarefa não encontrada"));
       return;

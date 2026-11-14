@@ -63,7 +63,7 @@ export function usePainel() {
   // Ids que acabaram de mudar de status: o cartão pisca por 1,2 s.
   const [recemMudados, setRecemMudados] = useState(() => new Set());
 
-  const temporizadores = useRef({ fila: null, saude: null, confirmacao: null, piscadas: new Map() });
+  const temporizadores = useRef({ fila: null, saude: null, tarefas: null, confirmacao: null, piscadas: new Map() });
   const ultimaMudancaDeEstado = useRef(0);
 
   /* ---------------- Carga inicial (em paralelo) ---------------- */
@@ -101,6 +101,7 @@ export function usePainel() {
     const atuais = temporizadores.current;
     clearTimeout(atuais.fila);
     clearTimeout(atuais.saude);
+    clearTimeout(atuais.tarefas);
     clearTimeout(atuais.confirmacao);
     atuais.piscadas.forEach((id) => clearTimeout(id));
     atuais.piscadas.clear();
@@ -131,7 +132,8 @@ export function usePainel() {
   }, []);
 
   const recarregarTarefasEmBreve = useCallback((atrasoMs = 500) => {
-    setTimeout(async () => {
+    clearTimeout(temporizadores.current.tarefas);
+    temporizadores.current.tarefas = setTimeout(async () => {
       const { dados: tarefas, erro } = await tentar(api.buscarTarefas);
       if (erro) return;
       setDados((atual) => ({ ...atual, tarefas }));

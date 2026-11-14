@@ -144,12 +144,10 @@ public final class FilaPorConvenio {
 
   /** Enfileira ids no worker do convenio de cada um (lido do banco). */
   public void enfileirar(List<String> ids) {
-    for (String id : ids) {
-      Map<String, Object> solicitacao =
-          banco.consultarUm("SELECT id, convenio FROM solicitacoes WHERE id = ?", id);
-      if (solicitacao == null) {
-        continue;
-      }
+    if (ids.isEmpty()) return;
+    String marcadores = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+    for (Map<String, Object> solicitacao : banco.consultar(
+        "SELECT id, convenio FROM solicitacoes WHERE id IN (" + marcadores + ") ORDER BY sintetica, id", ids.toArray())) {
       obterFila((String) solicitacao.get("convenio")).enfileirar((String) solicitacao.get("id"));
     }
   }

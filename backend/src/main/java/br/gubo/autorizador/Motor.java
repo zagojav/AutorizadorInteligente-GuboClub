@@ -130,11 +130,11 @@ public final class Motor {
   }
 
   private Map<String, Object> buscarConvenio(String convenioId) {
-    return banco.consultarUm("SELECT * FROM convenios WHERE id = ?", convenioId);
+    return banco.consultarUm("SELECT id, nome, status_integracao, status_padrao, disjuntor, falhas_seguidas, aberto_em, tempo_limite_ms FROM convenios WHERE id = ?", convenioId);
   }
 
   private Map<String, Object> buscarRegra(String convenioId) {
-    return banco.consultarUm("SELECT * FROM regras WHERE convenio = ?", convenioId);
+    return banco.consultarUm("SELECT convenio, procedimento, exige_documento, acao, fonte, versao FROM regras WHERE convenio = ?", convenioId);
   }
 
   private boolean temDocumentoAnexado(String solicitacaoId) {
@@ -292,7 +292,7 @@ public final class Motor {
   /** Processa uma solicitacao: decide pela regra do convenio e chama a API de verdade. */
   public void processarSolicitacao(String solicitacaoId, String modoSimulado) {
     Map<String, Object> solicitacao =
-        banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", solicitacaoId);
+        banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", solicitacaoId);
     if (solicitacao == null) {
       return;
     }
@@ -398,7 +398,7 @@ public final class Motor {
 
   public ResultadoDeCaso casoAuroraAutoriza() {
     processarSolicitacao("DEMO-R1", "normal");
-    Map<String, Object> solicitacao = banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", "DEMO-R1");
+    Map<String, Object> solicitacao = banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", "DEMO-R1");
     boolean passou = "autorizada".equals(solicitacao.get("status"))
         && "DEMO-AUTH-1".equals(solicitacao.get("numero_autorizacao"));
     return new ResultadoDeCaso(passou, solicitacao);
@@ -406,13 +406,13 @@ public final class Motor {
 
   public ResultadoDeCaso casoHorizonteSemDocumentoFicaPendente() {
     processarSolicitacao("DEMO-R2", "normal");
-    Map<String, Object> solicitacao = banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", "DEMO-R2");
+    Map<String, Object> solicitacao = banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", "DEMO-R2");
     return new ResultadoDeCaso("pendente_documento".equals(solicitacao.get("status")), solicitacao);
   }
 
   public ResultadoDeCaso casoJardimIndisponivelCriaTarefa() {
     processarSolicitacao("DEMO-R3", "normal");
-    Map<String, Object> solicitacao = banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", "DEMO-R3");
+    Map<String, Object> solicitacao = banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", "DEMO-R3");
     boolean temTarefa = banco.consultarUm("SELECT 1 FROM tarefas_humanas WHERE solicitacao = ?", "DEMO-R3") != null;
     return new ResultadoDeCaso("tarefa_humana".equals(solicitacao.get("status")) && temTarefa, solicitacao);
   }
@@ -420,7 +420,7 @@ public final class Motor {
   public ResultadoDeCaso casoSemNumeroNaoAutoriza() {
     banco.reiniciarSolicitacao("DEMO-R1");
     processarSolicitacao("DEMO-R1", "sem_numero");
-    Map<String, Object> solicitacao = banco.consultarUm("SELECT * FROM solicitacoes WHERE id = ?", "DEMO-R1");
+    Map<String, Object> solicitacao = banco.consultarUm("SELECT id, paciente, convenio, procedimento, status, numero_autorizacao, motivo, regra_usada, tentativas, criado_em, respondido_em, latencia_ms, status_esperado_kit, sintetica FROM solicitacoes WHERE id = ?", "DEMO-R1");
     boolean temTarefa = banco.consultarUm("SELECT 1 FROM tarefas_humanas WHERE solicitacao = ?", "DEMO-R1") != null;
     Object numero = solicitacao.get("numero_autorizacao");
     boolean naoInventouNumero = numero == null || String.valueOf(numero).isEmpty();

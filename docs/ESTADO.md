@@ -1,6 +1,6 @@
 # ESTADO DO PROJETO (atualizado a cada fase)
 
-Última atualização: 14/11/2026 14:13 (São Paulo). Fase 3 concluída.
+Última atualização: 14/11/2026 14:14 (São Paulo). Fase 4 concluída com ressalvas documentadas.
 
 ## Como rodar (hoje)
 ```bash
@@ -37,11 +37,17 @@ bash scripts/paridade.sh              # prova Node x Java
 - Build sem warnings; abertura desktop e celular: 9/9 em cada, 59 fps médios headless, zero tarefas longas e zero erros de console. Isso não garante 60 fps em todo dispositivo.
 - Mantido um único WOFF2 variável (48,43 kB), em vez de dois arquivos de pesos: preserva a tipografia aprovada. Divergência literal do limite de dois pesos registrada.
 
+## Fase 4
+- CHECKLIST e ESCALA registram os 31 pontos e limites, sem anunciar infraestrutura inexistente.
+- Consultas em lote nas filas e métricas; projeções SQL explícitas; debounce/cancelamento das tarefas.
+- `mvn package`: 20 testes, zero falhas; `PARIDADE OK (17 chamadas comparadas, campo por campo)`.
+- Item 20 parcial (assets no build, sem pré-renderizar React); fonte variável única preserva visual.
+- Primeira rodada móvel falhou durante substituição do jar em execução. Repetição com processo novo em andamento; não substituir o jar enquanto o servidor roda.
+
 ## Falta
-- Fase 4: docs/CHECKLIST.md e docs/ESCALA.md.
 - Fase 5: revisão secure-code, docs/SEGURANCA.md.
 - Fase 6: scripts/demo.sh, tunel.sh, reset.sh, README, docs/EVIDENCIAS.md, 3 rodadas.
 - Fase 7: relatório.
 
 ## Próximo passo exato
-Fase 4: conferir os 31 pontos, corrigir lacunas aplicáveis e documentar escala.
+Fase 5: corrigir problemas de segurança confirmados e documentar cobertura/limites.
