@@ -1,6 +1,6 @@
 # ESTADO DO PROJETO (atualizado a cada fase)
 
-Última atualização: 14/11/2026 13:55 (São Paulo). Fase 2 concluída.
+Última atualização: 14/11/2026 14:13 (São Paulo). Fase 3 concluída.
 
 ## Como rodar (hoje)
 ```bash
@@ -31,12 +31,17 @@ bash scripts/paridade.sh              # prova Node x Java
 - Limite de 10 gerações de texto por minuto (spec): rodar a demo inteira mais de uma vez no mesmo minuto sem reiniciar o servidor bate em 429 (texto não aparece naquelas tarefas). O reset da demo reinicia o processo.
 - `encaminhamentos_corretos` mostra 2/3 depois de anexar o documento do R2 (o kit esperava pendente_documento). É o comportamento especificado, igual no Node.
 
+## Fase 3 verificada
+- O checkpoint já continha Inter local variável, cinco cenas, lazy loading e teste da abertura.
+- Corrigida barra de progresso para não usar scrub com movimento reduzido.
+- Build sem warnings; abertura desktop e celular: 9/9 em cada, 59 fps médios headless, zero tarefas longas e zero erros de console. Isso não garante 60 fps em todo dispositivo.
+- Mantido um único WOFF2 variável (48,43 kB), em vez de dois arquivos de pesos: preserva a tipografia aprovada. Divergência literal do limite de dois pesos registrada.
+
 ## Falta
-- Fase 3: fontes locais (index.html ainda usa Google Fonts com 5 pesos); revisar cenas; commit.
 - Fase 4: docs/CHECKLIST.md e docs/ESCALA.md.
 - Fase 5: revisão secure-code, docs/SEGURANCA.md.
 - Fase 6: scripts/demo.sh, tunel.sh, reset.sh, README, docs/EVIDENCIAS.md, 3 rodadas.
 - Fase 7: relatório.
 
 ## Próximo passo exato
-Fase 3: baixar Inter (400 e 600, woff2) pra `web/public/fontes/`, trocar o link do Google Fonts por `@font-face` local em base.css, rebuild, conferir a abertura no navegador.
+Fase 4: conferir os 31 pontos, corrigir lacunas aplicáveis e documentar escala.

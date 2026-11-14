@@ -51,7 +51,10 @@ export default function Abertura() {
     gsap.to('[data-progresso]', {
       scaleX: 1,
       ease: 'none',
-      scrollTrigger: { trigger: document.body, start: 'top top', end: 'bottom bottom', scrub: 0.3 },
+      scrollTrigger: {
+        trigger: document.body, start: 'top top', end: 'bottom bottom',
+        ...(semMovimento ? { onUpdate: (gatilho) => gsap.set('[data-progresso]', { scaleX: gatilho.progress }) } : { scrub: 0.3 }),
+      },
     });
 
     /* ---------- Quem pediu menos movimento: fade simples, sem scrub e sem pin ----------
