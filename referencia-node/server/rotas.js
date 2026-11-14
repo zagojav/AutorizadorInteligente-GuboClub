@@ -36,7 +36,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Caminho fixo, dentro de ./kit. Nunca é montado com valor vindo do usuário (sem path traversal).
-const CAMINHO_DOCUMENTO_MOCK = join(__dirname, '..', 'kit', 'docs', 'documento_mock.txt');
+const CAMINHO_DOCUMENTO_MOCK = join(__dirname, '..', '..', 'kit', 'docs', 'documento_mock.txt');
 
 const SINTETICAS_POR_CONVENIO = 5;
 const INTERVALO_HEARTBEAT_MS = 15000;

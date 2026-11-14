@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { registrarEvento } from './eventos.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PASTA_DADOS_KIT = join(__dirname, '..', 'kit', 'data');
+const PASTA_DADOS_KIT = join(__dirname, '..', '..', 'kit', 'data');
 
 // Teto de solicitações sintéticas no banco: acima disso as mais antigas saem.
 export const LIMITE_SINTETICAS = 50;

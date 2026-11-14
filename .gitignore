@@ -1,4 +1,6 @@
 node_modules/
+.tools/
+backend/target/
 *.db
 *.db-wal
 *.db-shm

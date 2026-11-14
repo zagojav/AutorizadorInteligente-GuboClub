@@ -12,7 +12,7 @@ import { registrarRotasPublicas } from './rotas.js';
 import { GerenciadorDeFilas } from './filas.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PASTA_DO_FRONT = join(__dirname, '..', 'web', 'dist');
+const PASTA_DO_FRONT = join(__dirname, '..', '..', 'web', 'dist');
 
 // Origens liberadas em desenvolvimento: só o Vite local. Sem credenciais e sem '*'.
 const ORIGENS_DE_DESENVOLVIMENTO = ['http://localhost:5173', 'http://127.0.0.1:5173'];

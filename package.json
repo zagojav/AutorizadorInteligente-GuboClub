@@ -1,16 +1,16 @@
 {
   "name": "gubo-autorizador",
-  "version": "1.0.0",
-  "description": "Autorizador Inteligente de convenios - Hack Inova Desafio 3",
+  "version": "2.0.0",
+  "description": "Autorizador Inteligente de convenios - Hack Inova Desafio 3. Backend em Java (./backend); o Node em ./referencia-node fica como especificacao viva e base da prova de paridade.",
   "private": true,
   "type": "module",
-  "main": "server/index.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server/index.js",
-    "test": "node --test"
+    "paridade": "bash scripts/paridade.sh",
+    "referencia": "node referencia-node/server/index.js",
+    "testes-referencia": "node --test \"referencia-node/test/*.test.js\""
   },
   "keywords": [],
   "author": "",
