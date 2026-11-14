@@ -72,7 +72,7 @@ public final class Aplicacao {
     // Handler global: qualquer erro nao tratado responde mensagem curta, sem stack trace,
     // e o processo segue de pe.
     javalin.exception(Exception.class, (erro, contexto) -> {
-      System.err.println("[erro] " + contexto.method() + " " + contexto.path() + ": " + erro.getMessage());
+      System.err.println("[erro] falha interna no processamento HTTP");
       contexto.status(500).json(Json.mapa("erro", "erro interno"));
     });
 

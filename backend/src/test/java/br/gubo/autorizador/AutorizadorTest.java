@@ -500,6 +500,75 @@ class AutorizadorTest {
   // --- validacao -----------------------------------------------------------------------
 
   @Test
+  @DisplayName("23 - Escritas concorrentes são recusadas enquanto a fila trabalha")
+  void escritaConcorrenteRecusada() throws Exception {
+    System.setProperty("MOCK_LATENCIA_MS", "200");
+    try {
+      var requisicao = HttpRequest.newBuilder(URI.create(base + "/api/fila/iniciar"))
+          .POST(HttpRequest.BodyPublishers.noBody()).build();
+      var primeira = http.sendAsync(requisicao, HttpResponse.BodyHandlers.ofString());
+      long prazo = System.currentTimeMillis() + 5000;
+      while (!servidor.filas().temTrabalho() && System.currentTimeMillis() < prazo) Thread.sleep(10);
+      assertTrue(servidor.filas().temTrabalho());
+      assertEquals(409, chamar("POST", "/api/simulacao/carga", null).codigo());
+      assertEquals(200, primeira.get(10, java.util.concurrent.TimeUnit.SECONDS).statusCode());
+      assertEquals(3, banco.contar("SELECT COUNT(*) FROM solicitacoes"));
+    } finally {
+      System.setProperty("MOCK_LATENCIA_MS", "5");
+    }
+  }
+
+  @Test
+  @DisplayName("24 - Limite global de ações devolve 429")
+  void limiteDeAcoes() {
+    boolean limitado = false;
+    for (int tentativa = 0; tentativa < 121; tentativa++) {
+      int codigo = chamar("POST", "/api/convenios/aurora/restaurar", null).codigo();
+      if (codigo == 429) { limitado = true; break; }
+      assertEquals(200, codigo);
+    }
+    assertTrue(limitado);
+  }
+
+  @Test
+  @DisplayName("20 - JSON inválido não vaza detalhe nem altera modo")
+  void jsonInvalido() {
+    for (String corpo : List.of("{invalido", "null", "[]", "{\"modo\":42}")) {
+      Resposta resposta = chamar("POST", "/api/convenios/aurora/modo", corpo);
+      assertEquals(400, resposta.codigo());
+      assertEquals(Map.of("erro", "requisição inválida"), resposta.mapa());
+    }
+    assertEquals("normal", servidor.apiSimulada().obterModo("aurora"));
+  }
+
+  @Test
+  @DisplayName("21 - Headers e bloqueio de arquivos internos")
+  void headersEArquivosInternos() {
+    Resposta resposta = chamar("GET", "/api/saude", null);
+    assertTrue(resposta.cabecalhos().get("content-security-policy").getFirst().contains("frame-ancestors 'none'"));
+    assertEquals(List.of("nosniff"), resposta.cabecalhos().get("x-content-type-options"));
+    assertEquals(404, chamar("GET", "/.git/config", null).codigo());
+    assertEquals(404, chamar("GET", "/assets/interno.js.map", null).codigo());
+  }
+
+  @Test
+  @DisplayName("22 - Chunked malformado fecha conexão sem executar requisição seguinte")
+  void chunkedNaoExecutaRequisicaoSeguinte() throws Exception {
+    try (java.net.Socket socket = new java.net.Socket("127.0.0.1", servidor.javalin().port())) {
+      socket.setSoTimeout(5000);
+      String corpo = "POST /api/convenios/jardim/derrubar HTTP/1.1\r\nHost: localhost\r\n"
+          + "Transfer-Encoding: chunked\r\n\r\n1;a=\"\r\nX\r\n0\r\n\r\n"
+          + "POST /api/convenios/aurora/derrubar HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n";
+      socket.getOutputStream().write(corpo.getBytes(StandardCharsets.US_ASCII));
+      String resposta = new String(socket.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
+      assertTrue(resposta.startsWith("HTTP/1.1 400"), resposta);
+      assertEquals(1, resposta.split("HTTP/1.1", -1).length - 1);
+      assertEquals("normal", servidor.apiSimulada().obterModo("jardim"));
+      assertEquals("normal", servidor.apiSimulada().obterModo("aurora"));
+    }
+  }
+
+  @Test
   @DisplayName("17 - Validacao: id, convenio e modo fora do padrao tomam 400")
   void validacaoDeParametros() {
     assertEquals(400, chamar("GET", "/api/solicitacoes/DEMO-X1/linha-do-tempo", null).codigo());

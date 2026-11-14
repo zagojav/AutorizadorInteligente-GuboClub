@@ -180,6 +180,10 @@ public final class FilaPorConvenio {
     return situacao;
   }
 
+  public boolean temTrabalho() {
+    return filas.values().stream().anyMatch(fila -> fila.tamanho() > 0);
+  }
+
   public void encerrar() {
     filas.values().forEach(Fila::encerrar);
   }

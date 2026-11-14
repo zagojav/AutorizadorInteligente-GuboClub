@@ -79,8 +79,19 @@ public final class ApiSimulada {
           return;
         }
 
-        Map<String, Object> corpo = Json.lerMapa(contexto.body());
+        Map<String, Object> corpo;
+        try {
+          corpo = Json.lerMapa(contexto.body());
+        } catch (IllegalArgumentException erro) {
+          contexto.status(400).json(Json.mapa("erro", "requisição inválida"));
+          return;
+        }
         Object modoDaChamada = corpo.get("modo_simulado");
+        if ((modoDaChamada != null && !MODOS_VALIDOS.contains(modoDaChamada))
+            || (corpo.containsKey("tem_documento") && !(corpo.get("tem_documento") instanceof Boolean))) {
+          contexto.status(400).json(Json.mapa("erro", "requisição inválida"));
+          return;
+        }
         // Modo so desta chamada. Os casos do kit usam isso pra rodar sem mexer no modo
         // global do convenio (senao rodar os testes mudaria o comportamento da demo).
         String modo = modoDaChamada instanceof String texto && MODOS_VALIDOS.contains(texto)

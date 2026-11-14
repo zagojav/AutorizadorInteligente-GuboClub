@@ -1,6 +1,6 @@
 # ESTADO DO PROJETO (atualizado a cada fase)
 
-Última atualização: 14/11/2026 14:14 (São Paulo). Fase 4 concluída com ressalvas documentadas.
+Última atualização: 14/11/2026 14:19 (São Paulo). Fase 5 concluída com limites documentados.
 
 ## Como rodar (hoje)
 ```bash
@@ -44,10 +44,16 @@ bash scripts/paridade.sh              # prova Node x Java
 - Item 20 parcial (assets no build, sem pré-renderizar React); fonte variável única preserva visual.
 - Primeira rodada móvel falhou durante substituição do jar em execução. Repetição com processo novo em andamento; não substituir o jar enquanto o servidor roda.
 
+## Fase 5
+- SEGURANCA documenta revisão, correções e alertas residuais de Jetty 11.
+- Jackson 2.23.0, Jetty 11.0.26; CSP/headers, JSON inválido 400, caminhos protegidos, mutações serializadas e limitadas.
+- Payload chunked de request smuggling recusado com conexão fechada e nenhuma ação executada.
+- 25 testes JUnit passando. Painel móvel com processo novo: 18/18, zero console, 21.005 ms em Slow 3G.
+- Histórico de arquivos de ambiente não verificado: hook bloqueou a consulta. Sem contornar.
+
 ## Falta
-- Fase 5: revisão secure-code, docs/SEGURANCA.md.
 - Fase 6: scripts/demo.sh, tunel.sh, reset.sh, README, docs/EVIDENCIAS.md, 3 rodadas.
 - Fase 7: relatório.
 
 ## Próximo passo exato
-Fase 5: corrigir problemas de segurança confirmados e documentar cobertura/limites.
+Fase 6: finalizar scripts de operação, repetir paridade e três demos com reset, registrar evidências e README.

@@ -33,6 +33,8 @@ public final class Rotas {
   private final Motor motor;
   private final FilaPorConvenio filas;
   private final TempoReal tempoReal;
+  private final java.util.concurrent.Semaphore mutacao = new java.util.concurrent.Semaphore(1);
+  private final List<Long> acoesRecentes = new ArrayList<>();
 
   public Rotas(Banco banco, ApiSimulada apiSimulada, Motor motor, FilaPorConvenio filas, TempoReal tempoReal) {
     this.banco = banco;
@@ -47,11 +49,8 @@ public final class Rotas {
    * servidor. So vaza o detalhe se DETALHAR_ERROS=1 estiver ligado (depuracao local).
    */
   private static void responderErro(Context contexto, int codigo, String mensagem, Exception erro) {
-    System.err.println("[erro] " + mensagem + ": " + (erro == null ? "" : erro.getMessage()));
+    System.err.println("[erro] " + mensagem);
     Map<String, Object> corpo = Json.mapa("erro", mensagem);
-    if ("1".equals(Config.texto("DETALHAR_ERROS")) && erro != null && erro.getMessage() != null) {
-      corpo.put("detalhe", erro.getMessage());
-    }
     contexto.status(codigo).json(corpo);
   }
 
@@ -100,7 +99,51 @@ public final class Rotas {
   }
 
   public void registrar(Javalin servidor) {
+    servidor.before(contexto -> {
+      contexto.header("x-content-type-options", "nosniff");
+      contexto.header("x-frame-options", "DENY");
+      contexto.header("referrer-policy", "no-referrer");
+      contexto.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+      contexto.header("strict-transport-security", "max-age=31536000");
+      contexto.header("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+      // A demo só recebe corpos pequenos com tamanho conhecido. Recusar chunked e
+      // encerrar a conexão mitiga o parser legado do Jetty 11 sem quebrar SSE de saída.
+      if (contexto.header("transfer-encoding") != null) {
+        contexto.header("connection", "close");
+        contexto.status(400).json(Json.mapa("erro", "requisição inválida"));
+        contexto.skipRemainingHandlers();
+      }
+    });
     servidor.before(Rotas::aplicarCors);
+    servidor.before(contexto -> {
+      if (!contexto.path().startsWith("/api/") || !"POST".equals(contexto.method().name())) return;
+      synchronized (acoesRecentes) {
+        long agora = System.currentTimeMillis();
+        acoesRecentes.removeIf(inicio -> agora - inicio >= 60000);
+        if (acoesRecentes.size() >= 120) {
+          contexto.status(429).json(Json.mapa("erro", "limite de ações por minuto atingido"));
+          contexto.skipRemainingHandlers();
+          return;
+        }
+        acoesRecentes.add(agora);
+      }
+      if (!mutacao.tryAcquire()) {
+        contexto.status(409).json(Json.mapa("erro", "outra ação está em andamento"));
+        contexto.skipRemainingHandlers();
+        return;
+      }
+      contexto.attribute("mutacao-reservada", true);
+      String caminho = contexto.path();
+      boolean mexeNaFila = caminho.equals("/api/fila/iniciar") || caminho.equals("/api/simulacao/carga")
+          || caminho.endsWith("/documentos") || caminho.endsWith("/reprocessar");
+      if (mexeNaFila && filas.temTrabalho()) {
+        contexto.status(409).json(Json.mapa("erro", "aguarde a fila terminar"));
+        contexto.skipRemainingHandlers();
+      }
+    });
+    servidor.after(contexto -> {
+      if (Boolean.TRUE.equals(contexto.attribute("mutacao-reservada"))) mutacao.release();
+    });
 
     // Dados de usuario nunca vao pra cache de CDN/edge, e nada de sniffing de content-type.
     // O SSE fica de fora: a resposta dele ja foi enviada no proprio handler.
@@ -261,7 +304,13 @@ public final class Rotas {
     servidor.post("/api/convenios/{convenio}/modo", contexto -> {
       try {
         String convenio = contexto.pathParam("convenio");
-        Map<String, Object> corpo = Json.lerMapa(contexto.body());
+        Map<String, Object> corpo;
+        try {
+          corpo = Json.lerMapa(contexto.body());
+        } catch (IllegalArgumentException erro) {
+          requisicaoInvalida(contexto);
+          return;
+        }
         Object modo = corpo.get("modo");
         if (!ApiSimulada.CONVENIOS_CONHECIDOS.contains(convenio)
             || !(modo instanceof String texto)
@@ -558,6 +607,11 @@ public final class Rotas {
   private void registrarFrontEnd(Javalin servidor) {
     servidor.get("/*", contexto -> {
       String caminho = contexto.path();
+      if (java.util.Arrays.stream(caminho.split("/")).anyMatch(parte -> parte.startsWith("."))
+          || caminho.endsWith(".map")) {
+        contexto.status(404).json(Json.mapa("erro", "rota não encontrada"));
+        return;
+      }
       if (ehApiOuMock(caminho)) {
         contexto.status(404).json(Json.mapa("erro", "rota não encontrada"));
         return;
@@ -600,6 +654,10 @@ public final class Rotas {
     if (!candidato.startsWith(pasta) || !Files.isRegularFile(candidato)) {
       return null;
     }
-    return candidato;
+    try {
+      return candidato.toRealPath().startsWith(pasta.toRealPath()) ? candidato : null;
+    } catch (IOException erro) {
+      return null;
+    }
   }
 }

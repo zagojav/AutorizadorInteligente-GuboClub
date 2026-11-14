@@ -33,7 +33,9 @@ public final class Json {
       return new LinkedHashMap<>();
     }
     try {
-      return MAPEADOR.readValue(texto, LinkedHashMap.class);
+      Map<String, Object> mapa = MAPEADOR.readValue(texto, LinkedHashMap.class);
+      if (mapa == null) throw new IllegalArgumentException("objeto JSON obrigatório");
+      return mapa;
     } catch (Exception erro) {
       throw new IllegalArgumentException("corpo JSON invalido", erro);
     }
