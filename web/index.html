@@ -9,12 +9,9 @@
       name="description"
       content="Autorizador Inteligente de convênios. Prova de conceito com dados sintéticos: a IA sugere, a regra decide, o humano resolve a exceção."
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-    />
+    <!-- Fonte hospedada localmente (Inter variável, subconjunto latin, um arquivo só).
+         O @font-face fica em src/estilos/base.css e o Vite coloca o arquivo em /assets
+         com hash, então ele entra no cache longo do navegador. Nenhum domínio de terceiro. -->
   </head>
   <body>
     <div id="raiz"></div>
