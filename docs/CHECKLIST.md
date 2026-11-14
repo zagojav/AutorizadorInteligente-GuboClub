@@ -34,6 +34,6 @@ Verificação em 14/11/2026. Feito significa implementado; limites e divergênci
 | 28 | Várias instâncias | Próximo passo: fila, disjuntor e SSE estão em memória. Não anunciar suporte atual. |
 | 29 | Fonte local | Feito com divergência: um WOFF2 Inter variável de 48,43 kB, não dois pesos fixos. Preservada a tipografia aprovada. Zero Google Fonts. |
 | 30 | Monitorar usuários | Próximo passo: não há RUM/telemetria externa. |
-| 31 | Celular/rede lenta | Roteiro Playwright 390x844, 400 kbps e 400 ms. Resultado final registrado em EVIDENCIAS. |
+| 31 | Celular/rede lenta | Feito: Playwright 390x844, 400 kbps e 400 ms; 18/18, zero console/página, 20.905 ms. EVIDENCIAS. |
 
 O item obrigatório 20 permanece parcial; 13 usa template incremental e 29 usa fonte variável única. Não se declara cumprimento literal de todos os obrigatórios.

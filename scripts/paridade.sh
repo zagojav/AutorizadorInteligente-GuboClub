@@ -15,6 +15,12 @@ cd "$RAIZ"
 
 PORTA_NODE=3001
 PORTA_JAVA=3000
+for porta in "$PORTA_NODE" "$PORTA_JAVA"; do
+  if lsof -nP -iTCP:"$porta" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "ERRO: porta $porta ocupada; pare a demo antes da paridade." >&2
+    exit 1
+  fi
+done
 TRABALHO="$(mktemp -d)"
 NODE_PID=""
 JAVA_PID=""

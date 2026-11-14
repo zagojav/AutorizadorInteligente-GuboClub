@@ -1,11 +1,14 @@
 # ESTADO DO PROJETO (atualizado a cada fase)
 
-Última atualização: 14/11/2026 14:19 (São Paulo). Fase 5 concluída com limites documentados.
+Última atualização: 14/11/2026 14:25 (São Paulo). Fase 6 concluída com limites documentados.
 
 ## Como rodar (hoje)
 ```bash
+bash scripts/demo.sh                  # comando único; build se necessário, fila inicial pronta
+bash scripts/reset.sh                 # reinicia processo e banco sintético em memória
+bash scripts/reset.sh --parar         # para somente a demo gerenciada
 source scripts/env.sh                 # JDK 21 e Maven de ./.tools
-mvn -f backend package                # testa (20 casos) e gera backend/target/autorizador.jar
+mvn -f backend package                # testa (25 casos) e gera backend/target/autorizador.jar
 (cd web && npm run build)             # gera web/dist
 java -jar backend/target/autorizador.jar   # http://127.0.0.1:3000  (painel em /#/painel)
 bash scripts/paridade.sh              # prova Node x Java
@@ -51,9 +54,16 @@ bash scripts/paridade.sh              # prova Node x Java
 - 25 testes JUnit passando. Painel móvel com processo novo: 18/18, zero console, 21.005 ms em Slow 3G.
 - Histórico de arquivos de ambiente não verificado: hook bloqueou a consulta. Sem contornar.
 
+## Fase 6
+- Scripts demo/reset/túnel, README com arquitetura, roteiro e equipe; evidências em docs/EVIDENCIAS.md.
+- Paridade final 17/17; mvn test final 25 testes; build front sem warnings.
+- Três rodadas consecutivas completas: 17/17 cada, zero erros de console/página, decisões iguais após reset de processo/banco. Métricas simuladas variam naturalmente.
+- Celular final Slow 3G: 18/18, zero console/página, 20.905 ms. Testes do kit HTTP 200, 4/4.
+- Demo deixada ativa em 127.0.0.1:3000, fila inicial 3/3, casos 4/4. Túnel não iniciado nesta sessão.
+- Nenhum arquivo do kit alterado. AGENTS.md já estava não rastreado e foi preservado.
+
 ## Falta
-- Fase 6: scripts/demo.sh, tunel.sh, reset.sh, README, docs/EVIDENCIAS.md, 3 rodadas.
-- Fase 7: relatório.
+- Fase 7: entregar relatório final. Pendências de produto/escala e ressalvas de segurança estão no CHECKLIST, ESCALA e SEGURANCA; não são anunciadas como implementadas.
 
 ## Próximo passo exato
-Fase 6: finalizar scripts de operação, repetir paridade e três demos com reset, registrar evidências e README.
+Fase 7: registrar o relatório e informar comando único, resultados e ressalvas.
