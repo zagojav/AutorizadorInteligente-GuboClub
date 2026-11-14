@@ -25,6 +25,14 @@ import {
 import { calcularMetricas, guardarResultadoDosCasos } from './metricas.js';
 import { resumirAuditoria } from './auditor.js';
 import { assinar, publicar } from './barramento.js';
+import {
+  gerarTextoDaTarefa,
+  montarContextoDaTarefa,
+  resumirDocumento,
+  reservarGeracao,
+  liberarGeracao,
+  situacaoDoProvedor,
+} from './ia.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Caminho fixo, dentro de ./kit. Nunca é montado com valor vindo do usuário (sem path traversal).
@@ -43,6 +51,17 @@ const SCHEMA_ID_SOLICITACAO = {
     required: ['id'],
     properties: {
       id: { type: 'string', pattern: '^DEMO-(R|S)[0-9]{1,4}$' },
+    },
+  },
+};
+
+// Id de tarefa e inteiro autoincremental: so digito, com teto de tamanho.
+const SCHEMA_ID_TAREFA = {
+  params: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string', pattern: '^[0-9]{1,9}$' },
     },
   },
 };
@@ -68,6 +87,27 @@ const SCHEMA_MODO_CONVENIO = {
     },
   },
 };
+
+// Abre uma resposta SSE: escreve direto no socket (hijack), então não passa pelo onSend
+// e não é comprimida. Usada pelo /api/stream e pelo stream de texto da tarefa.
+function abrirSse(reply) {
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  reply.raw.write('retry: 2000\n\n');
+}
+
+function escreverSse(resposta, tipo, dados) {
+  try {
+    resposta.write(`event: ${tipo}\ndata: ${JSON.stringify(dados)}\n\n`);
+  } catch (erro) {
+    console.error('[erro] falha ao escrever no SSE:', erro.message);
+  }
+}
 
 // Resposta de erro única: mensagem estável pro cliente, detalhe técnico só no log do servidor.
 // Só vaza o detalhe se DETALHAR_ERROS=1 estiver ligado explicitamente (uso local de depuração).
@@ -112,6 +152,7 @@ export function registrarRotasPublicas(fastify, db, filas) {
         convenios,
         modos: listarModos(),
         filas: filas.situacao(),
+        ia: situacaoDoProvedor(),
       };
     } catch (erro) {
       return responderErro(reply, 500, 'falha ao consultar a saúde', erro);
@@ -195,17 +236,22 @@ export function registrarRotasPublicas(fastify, db, filas) {
         VALUES (?, 'documento_mock', ?, ?)
       `).run(id, conteudo, new Date().toISOString());
 
+      // A IA le o documento e sugere o que encontrou. E sugestao: nao muda status nem
+      // decide nada. Quem decide a seguir e a regra, no processarSolicitacao abaixo.
+      const sugestao = await resumirDocumento(conteudo);
+
       registrarEvento(db, {
         solicitacao: id,
         statusDe: solicitacao.status,
         statusPara: solicitacao.status,
-        motivo: 'documento anexado pelo atendimento',
+        motivo: `documento anexado pelo atendimento; sugestao (${sugestao.origem}): ${sugestao.texto.replace(/\n/g, ' ')}`,
         regraUsada: solicitacao.regra_usada,
         ator: 'humano',
       });
 
       await processarSolicitacao(db, id);
-      return db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get(id);
+      const atualizada = db.prepare('SELECT * FROM solicitacoes WHERE id = ?').get(id);
+      return { ...atualizada, sugestao_ia: sugestao };
     } catch (erro) {
       return responderErro(reply, 500, 'falha ao anexar documento', erro);
     }
@@ -217,6 +263,74 @@ export function registrarRotasPublicas(fastify, db, filas) {
     } catch (erro) {
       return responderErro(reply, 500, 'falha ao consultar as tarefas', erro);
     }
+  });
+
+  // Texto de encaminhamento da tarefa, transmitido token por token.
+  // A IA só escreve texto: esta rota não toca em solicitacoes nem em status.
+  fastify.get('/api/tarefas/:id/texto-ia/stream', { schema: SCHEMA_ID_TAREFA }, async (request, reply) => {
+    const tarefaId = Number(request.params.id);
+    const tarefa = db.prepare('SELECT * FROM tarefas_humanas WHERE id = ?').get(tarefaId);
+    if (!tarefa) {
+      reply.code(404);
+      return { erro: 'tarefa não encontrada' };
+    }
+
+    // Já gerado antes: transmite o texto salvo, com a origem que ficou registrada.
+    if (tarefa.texto_ia) {
+      abrirSse(reply);
+      const origem = tarefa.origem_texto ?? 'template';
+      escreverSse(reply.raw, 'origem', { tarefa: tarefaId, origem, salvo: true });
+      escreverSse(reply.raw, 'trecho', { texto: tarefa.texto_ia });
+      escreverSse(reply.raw, 'fim', { tarefa: tarefaId, origem, texto: tarefa.texto_ia, salvo: true });
+      reply.raw.end();
+      return reply;
+    }
+
+    const vaga = reservarGeracao(`tarefa:${tarefaId}`);
+    if (!vaga.ok) {
+      reply.code(vaga.codigo);
+      return { erro: vaga.motivo };
+    }
+
+    const contexto = montarContextoDaTarefa(db, tarefa);
+    const controlador = new AbortController();
+    abrirSse(reply);
+    const resposta = reply.raw;
+    // Cliente desistiu: aborta a geração em vez de pagar por texto que ninguém vai ler.
+    request.raw.on('close', () => controlador.abort());
+
+    let origem = 'template';
+    let partes = [];
+    try {
+      for await (const parte of gerarTextoDaTarefa(contexto, { sinal: controlador.signal })) {
+        if (parte.tipo === 'origem') {
+          origem = parte.origem;
+          escreverSse(resposta, 'origem', { tarefa: tarefaId, origem });
+        } else if (parte.tipo === 'reiniciar') {
+          // A IA caiu no meio: o cliente descarta o que recebeu e o template recomeça.
+          partes = [];
+          escreverSse(resposta, 'reiniciar', { tarefa: tarefaId });
+        } else if (parte.tipo === 'trecho') {
+          partes.push(parte.texto);
+          escreverSse(resposta, 'trecho', { texto: parte.texto });
+        }
+      }
+
+      const texto = partes.join('').trim();
+      // Só grava texto e origem na tarefa. Nenhuma outra tabela é tocada aqui.
+      if (texto && !controlador.signal.aborted) {
+        db.prepare('UPDATE tarefas_humanas SET texto_ia = ?, origem_texto = ? WHERE id = ?')
+          .run(texto, origem, tarefaId);
+      }
+      escreverSse(resposta, 'fim', { tarefa: tarefaId, origem, texto, salvo: Boolean(texto) });
+    } catch (erro) {
+      console.error('[erro] falha ao gerar o texto da tarefa:', erro.message);
+      escreverSse(resposta, 'falha', { tarefa: tarefaId, erro: 'não foi possível gerar o texto' });
+    } finally {
+      liberarGeracao(`tarefa:${tarefaId}`);
+      resposta.end();
+    }
+    return reply;
   });
 
   // Troca o modo da API simulada de um convênio.
@@ -371,16 +485,9 @@ function registrarStream(fastify, db) {
 
   fastify.get('/api/stream', (request, reply) => {
     try {
-      reply.hijack();
+      abrirSse(reply);
       const resposta = reply.raw;
-      resposta.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-store',
-        connection: 'keep-alive',
-        'x-accel-buffering': 'no',
-      });
-      resposta.write('retry: 2000\n\n');
-      resposta.write(`event: conectado\ndata: ${JSON.stringify({ simulado: true, horario: new Date().toISOString() })}\n\n`);
+      escreverSse(resposta, 'conectado', { simulado: true, horario: new Date().toISOString() });
 
       clientes.add(resposta);
       const pulso = setInterval(() => {

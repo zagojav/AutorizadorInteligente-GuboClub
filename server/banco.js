@@ -93,6 +93,7 @@ function criarTabelas(db) {
       solicitacao TEXT NOT NULL,
       motivo TEXT NOT NULL,
       texto_ia TEXT,
+      origem_texto TEXT,
       prioridade TEXT NOT NULL DEFAULT 'normal',
       responsavel TEXT,
       prazo TEXT,

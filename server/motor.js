@@ -96,15 +96,15 @@ function temDocumentoAnexado(db, solicitacaoId) {
   return Boolean(db.prepare('SELECT 1 FROM documentos WHERE solicitacao = ? LIMIT 1').get(solicitacaoId));
 }
 
-// Texto de encaminhamento montado por template local (não é chamada de LLM) e prazo de 2 h,
-// pra quem pega a tarefa saber o que fazer sem abrir a linha do tempo.
+// Cria a tarefa com prazo de 2 h. O texto de encaminhamento (texto_ia) nasce vazio e é
+// escrito sob demanda pela camada de IA, em GET /api/tarefas/:id/texto-ia/stream.
+// O motor nunca depende desse texto pra decidir nada.
 function criarTarefaHumana(db, solicitacaoId, motivo, prioridade = 'normal') {
   const prazo = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-  const textoSugerido = `Solicitação ${solicitacaoId}: ${motivo}. Conferir no portal do convênio e responder manualmente. Não emitir autorização sem número devolvido pelo convênio.`;
   const resultado = db.prepare(`
-    INSERT INTO tarefas_humanas (solicitacao, motivo, texto_ia, prioridade, responsavel, prazo, status)
-    VALUES (?, ?, ?, ?, NULL, ?, 'aberta')
-  `).run(solicitacaoId, motivo, textoSugerido, prioridade, prazo);
+    INSERT INTO tarefas_humanas (solicitacao, motivo, texto_ia, origem_texto, prioridade, responsavel, prazo, status)
+    VALUES (?, ?, NULL, NULL, ?, NULL, ?, 'aberta')
+  `).run(solicitacaoId, motivo, prioridade, prazo);
 
   publicar('tarefa_criada', {
     id: resultado.lastInsertRowid,
