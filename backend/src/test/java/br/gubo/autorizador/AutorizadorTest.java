@@ -539,4 +539,49 @@ class AutorizadorTest {
     assertTrue(((Number) corpo.get("sinteticas_no_banco")).longValue() <= 50);
     servidor.filas().aguardarConclusao(60000);
   }
+
+  @Test
+  @DisplayName("19 - Estaticos: asset com hash tem cache longo, index.html no-cache, SPA cai no index")
+  void estaticosDoFront() throws Exception {
+    java.nio.file.Path dist = Caminhos.pastaDoFront();
+    org.junit.jupiter.api.Assumptions.assumeTrue(
+        java.nio.file.Files.isRegularFile(dist.resolve("index.html")),
+        "web/dist nao existe: rode npm run build em ./web");
+
+    // index.html: sempre revalidado.
+    Resposta raiz = chamar("GET", "/", null);
+    assertEquals(200, raiz.codigo());
+    assertTrue(raiz.cabecalhos().get("content-type").get(0).startsWith("text/html"));
+    assertEquals(List.of("no-cache"), raiz.cabecalhos().get("cache-control"));
+
+    // Rota da SPA que nao e arquivo: devolve o index, nunca 404.
+    Resposta spa = chamar("GET", "/painel", null);
+    assertEquals(200, spa.codigo());
+    assertTrue(spa.corpo().contains("<div id=\"raiz\">"), "esperava o index.html, veio: " + spa.corpo());
+
+    // Primeiro asset JS com hash: content-type de script e cache de um ano.
+    try (java.util.stream.Stream<java.nio.file.Path> arquivos = java.nio.file.Files.list(dist.resolve("assets"))) {
+      java.nio.file.Path js = arquivos
+          .filter(arquivo -> arquivo.getFileName().toString().endsWith(".js"))
+          .findFirst()
+          .orElseThrow();
+      Resposta asset = chamar("GET", "/assets/" + js.getFileName(), null, "accept-encoding", "gzip");
+      assertEquals(200, asset.codigo());
+      assertTrue(asset.cabecalhos().get("content-type").get(0).startsWith("text/javascript"),
+          "content-type errado: " + asset.cabecalhos());
+      assertEquals(List.of("public, max-age=31536000, immutable"), asset.cabecalhos().get("cache-control"));
+      assertTrue(asset.cabecalhos().getOrDefault("content-encoding", List.of()).contains("gzip"),
+          "esperava gzip no asset: " + asset.cabecalhos());
+      assertFalse(asset.corpo().contains("<div id=\"raiz\">"), "o asset veio como HTML");
+    }
+
+    // Path traversal nao sai da pasta: cai no index (200) ou 404, nunca o arquivo de fora.
+    Resposta traversal = chamar("GET", "/assets/../../../pom.xml", null);
+    assertFalse(traversal.corpo().contains("<project"), "path traversal vazou um arquivo de fora de web/dist");
+
+    // /api desconhecido continua 404 em JSON, sem cair no index.
+    Resposta api = chamar("GET", "/api/nao-existe", null);
+    assertEquals(404, api.codigo());
+    assertEquals("rota não encontrada", api.mapa().get("erro"));
+  }
 }

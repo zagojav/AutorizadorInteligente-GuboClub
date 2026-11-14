@@ -3,8 +3,6 @@ package br.gubo.autorizador;
 import io.javalin.Javalin;
 import io.javalin.compression.CompressionStrategy;
 import io.javalin.compression.Gzip;
-import io.javalin.http.staticfiles.Location;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -73,13 +71,8 @@ public final class Aplicacao {
       }
       configuracao.jetty.defaultHost = Config.texto("HOST", "127.0.0.1");
 
-      if (Files.isDirectory(Caminhos.pastaDoFront())) {
-        configuracao.staticFiles.add(estaticos -> {
-          estaticos.hostedPath = "/";
-          estaticos.directory = Caminhos.pastaDoFront().toString();
-          estaticos.location = Location.EXTERNAL;
-        });
-      }
+      // Os estaticos de ./web/dist sao servidos pela rota de fallback em Rotas (com cache por
+      // tipo de arquivo): o staticFiles do Javalin perderia pro GET /* e nao controlaria o cache.
     });
 
     // Handler global: qualquer erro nao tratado responde mensagem curta, sem stack trace,

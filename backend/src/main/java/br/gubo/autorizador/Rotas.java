@@ -76,13 +76,18 @@ public final class Rotas {
     // Dados de usuario nunca vao pra cache de CDN/edge, e nada de sniffing de content-type.
     // O SSE fica de fora: a resposta dele ja foi enviada no proprio handler.
     servidor.after(contexto -> {
-      if (ehStream(contexto.path())) {
+      String caminho = contexto.path();
+      if (ehStream(caminho)) {
         return;
       }
-      contexto.header("cache-control", "private, no-store");
       contexto.header("x-content-type-options", "nosniff");
       contexto.header("x-frame-options", "DENY");
       contexto.header("referrer-policy", "no-referrer");
+      // So a API e o mock recebem no-store. Os estaticos do front definem o proprio cache
+      // na rota deles (longo nos arquivos com hash, no-cache no index.html).
+      if (ehApiOuMock(caminho)) {
+        contexto.header("cache-control", "private, no-store");
+      }
     });
 
     servidor.get("/api/saude", contexto -> {
@@ -348,6 +353,10 @@ public final class Rotas {
     return caminho != null && (caminho.equals("/api/stream") || caminho.endsWith("/texto-ia/stream"));
   }
 
+  private static boolean ehApiOuMock(String caminho) {
+    return caminho != null && (caminho.startsWith("/api") || caminho.startsWith("/mock"));
+  }
+
   // --- SSE -----------------------------------------------------------------------------
 
   /**
@@ -480,24 +489,88 @@ public final class Rotas {
 
   // --- front -----------------------------------------------------------------------------
 
+  /** Content-type por extensao dos arquivos que o Vite gera. Fora da lista: octet-stream. */
+  private static final Map<String, String> TIPOS_DE_ARQUIVO = Map.ofEntries(
+      Map.entry("html", "text/html; charset=utf-8"),
+      Map.entry("js", "text/javascript; charset=utf-8"),
+      Map.entry("mjs", "text/javascript; charset=utf-8"),
+      Map.entry("css", "text/css; charset=utf-8"),
+      Map.entry("json", "application/json"),
+      Map.entry("svg", "image/svg+xml"),
+      Map.entry("png", "image/png"),
+      Map.entry("jpg", "image/jpeg"),
+      Map.entry("jpeg", "image/jpeg"),
+      Map.entry("webp", "image/webp"),
+      Map.entry("avif", "image/avif"),
+      Map.entry("ico", "image/x-icon"),
+      Map.entry("woff2", "font/woff2"),
+      Map.entry("woff", "font/woff"),
+      Map.entry("txt", "text/plain; charset=utf-8"),
+      Map.entry("webmanifest", "application/manifest+json"));
+
+  private static String tipoDoArquivo(Path arquivo) {
+    String nome = arquivo.getFileName().toString();
+    int ponto = nome.lastIndexOf('.');
+    String extensao = ponto < 0 ? "" : nome.substring(ponto + 1).toLowerCase();
+    return TIPOS_DE_ARQUIVO.getOrDefault(extensao, "application/octet-stream");
+  }
+
   /**
    * Serve ./web/dist quando a pasta existir, com fallback pro index.html em rotas que nao
    * sejam /api nem /mock (o front e uma SPA). Sem a pasta, a API sobe sozinha.
+   *
+   * Cache: os arquivos de /assets levam hash no nome, entao podem ficar um ano no navegador
+   * (immutable). O index.html e sempre revalidado (no-cache), senao o navegador ficaria com
+   * um HTML apontando pra assets que ja nao existem depois de um novo build.
+   *
+   * Seguranca: o caminho pedido e resolvido dentro da pasta e conferido com startsWith, pra
+   * que "../" nunca saia de ./web/dist (path traversal).
    */
   private void registrarFrontEnd(Javalin servidor) {
     servidor.get("/*", contexto -> {
       String caminho = contexto.path();
-      if (caminho.startsWith("/api") || caminho.startsWith("/mock")) {
+      if (ehApiOuMock(caminho)) {
         contexto.status(404).json(Json.mapa("erro", "rota não encontrada"));
         return;
       }
-      Path indice = Caminhos.pastaDoFront().resolve("index.html");
+      Path pasta = Caminhos.pastaDoFront().toAbsolutePath().normalize();
+      Path indice = pasta.resolve("index.html");
       if (!Files.isRegularFile(indice)) {
         contexto.status(404).json(Json.mapa("erro", "front não publicado em web/dist"));
         return;
       }
+
+      Path arquivo = resolverDentroDaPasta(pasta, caminho);
+      if (arquivo != null && !arquivo.equals(indice)) {
+        contexto.contentType(tipoDoArquivo(arquivo));
+        contexto.header("cache-control", caminho.startsWith("/assets/")
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=86400");
+        contexto.result(Files.newInputStream(arquivo));
+        return;
+      }
+
       contexto.contentType("text/html; charset=utf-8");
+      contexto.header("cache-control", "no-cache");
       contexto.result(Files.readString(indice, StandardCharsets.UTF_8));
     });
+  }
+
+  /** Arquivo regular dentro da pasta, ou null se nao existir ou se o caminho tentar sair dela. */
+  private static Path resolverDentroDaPasta(Path pasta, String caminho) {
+    if (caminho == null || caminho.isBlank() || caminho.equals("/") || caminho.indexOf('\0') >= 0) {
+      return null;
+    }
+    String relativo = caminho.startsWith("/") ? caminho.substring(1) : caminho;
+    Path candidato;
+    try {
+      candidato = pasta.resolve(relativo).normalize();
+    } catch (RuntimeException erro) {
+      return null;
+    }
+    if (!candidato.startsWith(pasta) || !Files.isRegularFile(candidato)) {
+      return null;
+    }
+    return candidato;
   }
 }
